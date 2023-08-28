@@ -7,4 +7,5 @@ from .util import (
     block_hankel,
     split_episodes,
     strip_initial_conditions,
+    DynamicModel
 )

@@ -291,3 +291,10 @@ def combine_episodes(episodes: List[Tuple[float, np.ndarray]],
     # Concatenate the combined episodes
     Xc = np.vstack(combined_episodes)
     return Xc
+
+def split_time_input(X: np.ndarray):
+    X_t = X[:, 0]
+    X_u = X[:, 1:]
+
+    return X_t, X_u
+
