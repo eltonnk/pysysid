@@ -110,12 +110,12 @@ def block_hankel(
         min_samples = first_feature + n_row + n_col - 1
         if X_ep.shape[0] < min_samples:
             raise ValueError(
-                f'Episode {ep} has {X_ep.shape[0]} samples, must have at '
-                f'least {min_samples} samples.'
+                f"Episode {ep} has {X_ep.shape[0]} samples, must have at "
+                f"least {min_samples} samples."
             )
         cols = []
         for col in range(first_feature, n_col + first_feature):
-            cols.append(X_ep[col:(col + n_row), :])
+            cols.append(X_ep[col : (col + n_row), :])
         H_ep = np.hstack(cols)
         hankels.append(H_ep)
     H = np.vstack(hankels)
@@ -149,7 +149,7 @@ def extract_initial_conditions(
     episodes = split_episodes(X, episode_feature=episode_feature)
     # Strip each episode
     initial_conditions = []
-    for (i, X_i) in episodes:
+    for i, X_i in episodes:
         if n_inputs == 0:
             initial_condition = X_i[:min_samples, :]
         else:
@@ -184,7 +184,7 @@ def extract_input(
     episodes = split_episodes(X, episode_feature=episode_feature)
     # Strip each episode
     inputs = []
-    for (i, X_i) in episodes:
+    for i, X_i in episodes:
         if n_inputs == 0:
             input_ = np.zeros((X_i.shape[0], 0))
         else:
@@ -220,7 +220,7 @@ def strip_initial_conditions(
     episodes = split_episodes(X, episode_feature=episode_feature)
     # Strip each episode
     stripped_episodes = []
-    for (i, X_i) in episodes:
+    for i, X_i in episodes:
         stripped_episode = X_i[min_samples:, :]
         stripped_episodes.append((i, stripped_episode))
     # Concatenate the stripped episodes
@@ -252,7 +252,7 @@ def split_episodes(
         X_ep = X[:, 0]
         X = X[:, 1:]
     else:
-        X_ep = np.zeros((X.shape[0], ))
+        X_ep = np.zeros((X.shape[0],))
     # Split X into list of episodes. Each episode is a tuple containing
     # its index and its associated data matrix.
     episodes = []
@@ -263,8 +263,9 @@ def split_episodes(
     return episodes
 
 
-def combine_episodes(episodes: List[Tuple[float, np.ndarray]],
-                     episode_feature: bool = False) -> np.ndarray:
+def combine_episodes(
+    episodes: List[Tuple[float, np.ndarray]], episode_feature: bool = False
+) -> np.ndarray:
     """Combine episodes into a data matrix.
 
     Parameters
@@ -282,19 +283,31 @@ def combine_episodes(episodes: List[Tuple[float, np.ndarray]],
         Combined data matrix.
     """
     combined_episodes = []
-    for (i, X) in episodes:
+    for i, X in episodes:
         if episode_feature:
-            combined_episodes.append(
-                np.hstack((i * np.ones((X.shape[0], 1)), X)))
+            combined_episodes.append(np.hstack((i * np.ones((X.shape[0], 1)), X)))
         else:
             combined_episodes.append(X)
     # Concatenate the combined episodes
     Xc = np.vstack(combined_episodes)
     return Xc
 
-def split_time_input(X: np.ndarray):
+
+def split_time_input(X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Takes the first column of the Data matrix and splits it from the
+    rest. This column is the time array.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Data matrix
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        Time and input data matrices
+    """
     X_t = X[:, 0]
     X_u = X[:, 1:]
 
     return X_t, X_u
-
