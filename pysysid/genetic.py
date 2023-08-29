@@ -31,6 +31,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         compute_u_from_t: Callable[[float], np.ndarray] = None,
         x0: np.ndarray = None,
         n_chromosomes: int = 2,
+        replace_with_best_ratio: float = 0.01,
+        can_terminate_after_index: int = 2,
+        ratio_max_error_for_termination:  float= 0.2,
         seed: int = None,
         chromosome_parameter_ranges: Dict[str, Tuple[float, float]] = None,
         n_jobs=None,
@@ -59,6 +62,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self.compute_u_from_t = compute_u_from_t
         self.x0 = x0
         self.n_chromosomes = n_chromosomes
+        self.replace_with_best_ratio = replace_with_best_ratio
+        self.can_terminate_after_index = can_terminate_after_index
+        self.ratio_max_error_for_termination = ratio_max_error_for_termination
         self.seed = seed
         self.chromosome_parameter_ranges = chromosome_parameter_ranges
         self.n_jobs = n_jobs
@@ -74,6 +80,36 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                     maximum value. Plaese specify minimum parameter value, 
                     then maximum parameter value."""
                 )
+            
+    def _validate_replacement_ratio(self):
+        if self.replace_with_best_ratio < 0 or self.replace_with_best_ratio > 1:
+            raise ValueError(
+                f"""Constructor argument 'replace_with_best_ratio'
+                must have a must have a value in the [0.0, 1.0] interval. 
+                Current value is {self.replace_with_best_ratio}."""
+            )
+        # TODO: raise warning if the replacement ratio is over 20, 30 , 50% ?
+        # (don't want to replace too many chromosomes by best one or else
+        # convergence slows down)
+
+    def _validate_replacement_ratio(self):
+        if self.ratio_max_error_for_termination < 0 or self.ratio_max_error_for_termination > 1:
+            raise ValueError(
+                f"""Constructor argument 'ratio_max_error_for_termination'
+                must have a must have a value in the [0.0, 1.0] interval. 
+                Current value is {self.ratio_max_error_for_termination}."""
+            )
+        
+        # TODO: raise warning if the replacement ratio is over  50%, 70%, 90% ? 
+        # (dont want to stop if error has not gone down)
+        
+    def _initialize_replacement_step_variables(self):
+        self._n_chromosomes_to_replace = int(self.n_chromosomes * self.replace_with_best_ratio)
+
+    def _initialize_termination_checking_variables(self, n_iter:int):
+        self._g_index = None
+        self._elite_chromosome_error_list = np.zeros((n_iter))
+        
             
     def _initialize_chromosomes(self, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
         n_params = len(self.chromosome_parameter_ranges.keys())
@@ -121,7 +157,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         pro_model_gen_j: pm2i.ProcessModelGenerator = self.dyn_model(dt=self.dt, **chromosome_dict)
         pm2i_j = pro_model_gen_j.generate_process_model_to_integrate()
         # TODO How will initial conditions work? here x0 is defined as zero, should be passed as a hyperparameter
-        sol_t, sol_u, _, sol_y = pm2i_j.integrate(
+        _, _, _, sol_y = pm2i_j.integrate(
             compute_u_from_t=self.compute_u_from_t, 
             dt_data=dt_data, 
             t_start=X_t[0], 
@@ -139,7 +175,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             n_outputs: int,
             y: np.ndarray,
             output_inverse_delta_list: List[float],
-        ) -> np.ndarray:
+        ) -> Tuple[np.ndarray, np.ndarray]:
 
         fitness_per_chromosome = np.zeros((self.n_chromosomes))
         mean_error_per_chromosome = np.zeros((self.n_chromosomes))
@@ -171,7 +207,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         inverse_max_fitness = np.max(fitness_per_chromosome)
         fitness_per_chromosome = fitness_per_chromosome * inverse_max_fitness
 
-        return fitness_per_chromosome
+        return fitness_per_chromosome, mean_error_per_chromosome
     
 
     def _crossover_chromosomes(
@@ -211,7 +247,67 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
 
         return chromosomes
+    
+    def _select_elite_chromosome(
+            self,
+            chromosomes: np.ndarray,
+            mean_error_per_chromosome: np.ndarray,
+            generation_index: int
+    ):
+        if generation_index == 0:
+            self._elite_chromosome_error = np.min(mean_error_per_chromosome)
+            index_elite_chromosome = np.argmin(mean_error_per_chromosome)
+            self._elite_chromosome = chromosomes[:, index_elite_chromosome]
+            return
+        
+        generational_min_chromosome_error = np.min(mean_error_per_chromosome)
 
+        if generational_min_chromosome_error < self._elite_chromosome_error:
+            self._elite_chromosome_error = generational_min_chromosome_error
+            index_elite_chromosome = np.argmin(mean_error_per_chromosome)
+            self._elite_chromosome = chromosomes[:, index_elite_chromosome]
+        
+        # This list lets us see progress of chromosome error
+        self._elite_chromosome_error_list[generation_index] = self._elite_chromosome_error
+            
+    def _replace_some_chromosomes_with_elite(
+            self, 
+            chromosomes: np.ndarray, 
+            rng: np.random.Generator
+        ) -> np.ndarray:
+        for _ in range(self._n_chromosomes_to_replace):
+            k = rng.integers(low=0, high=self.n_chromosomes)
+            chromosomes[:, k] = self._elite_chromosome
+
+        return chromosomes
+    
+    def _check_for_termination_condition(
+            self,
+            generation_index : int,
+        ):
+            if generation_index == 0:
+                # don't want to stop on first generation
+                return False
+            
+            # want to check if the chromosome error is going down
+            if self._g_index is None:
+                # store generation index when error first goes down
+                if self._elite_chromosome_error_list[-1] < self._elite_chromosome_error_list[-2]:
+                    self._g_index = generation_index
+                else:
+                    return False
+                
+            # want to wait a few generations after error first goes down for the chromosome error
+            # to settle into an exponential distribution
+            if generation_index - self._g_index <= self.can_terminate_after_index:
+                return False
+            
+            error_running_mean = np.mean(self._elite_chromosome_error_list[self._g_index:])
+
+            if error_running_mean <= self.ratio_max_error_for_termination * np.max(self._elite_chromosome_error_list):
+                return True
+
+            return False
 
 
     def fit(
@@ -231,6 +327,11 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             Input Data
         y : np.ndarray
             Output Data
+        n_iter: np.ndarray
+            Maximum number of chromosome generations before the algorithm stops,
+            which is equivalent to the maximum number of iterations.
+            The real number of iterations migh be smaller if the termination
+            condition is reached before `n_iter` iterations.
 
         Returns
         -------
@@ -244,8 +345,14 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         """
         
         self._validate_chromosome_parameter_range()
+        self._validate_replacement_ratio()
+        self._validate_replacement_ratio()
 
+        # Random number generator. Can specify seed for reproducibility.
         rng = default_rng(self.seed)
+
+        self._initialize_replacement_step_variables()
+        self._initialize_termination_checking_variables(n_iter)
 
         chromosomes, param_std_deviation = self._initialize_chromosomes(rng)
 
@@ -266,9 +373,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # or https://scikit-learn.org/stable/computing/parallelism.html#parallelism
         # for how to use multiple threads when n_jobs is not None
         
-        for _ in range(n_iter):
+        for generation_index in range(n_iter):
             # simulate and evaluate fitness
-            fitness_per_chromosome = self._evaluate_chromosome_fitness(
+            fitness_per_chromosome, mean_error_per_chromosome = self._evaluate_chromosome_fitness(
                 chromosomes=chromosomes,
                 dt_data=dt_data,
                 X_t=X_t,
@@ -281,10 +388,13 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             chromosomes = self._crossover_chromosomes(chromosomes, fitness_per_chromosome, rng)
             # mutation
             chromosomes = self._mutate_chromosomes(chromosomes, fitness_per_chromosome, param_std_deviation, rng)
-
             # elitism
-
-        # TODO : find the best chromosome by using section 5.5 elitism
+            self._select_elite_chromosome(chromosomes, mean_error_per_chromosome, generation_index)
+            # replacement
+            chromosomes = self._replace_some_chromosomes_with_elite(chromosomes, rng)
+            # termination
+            if self._check_for_termination_condition(generation_index):
+                return self
         
         return self
 
