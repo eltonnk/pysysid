@@ -1,5 +1,6 @@
 """Genetic algorithm system identification methods."""
 
+import warnings
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
@@ -26,10 +27,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
     def __init__(
         self,
-        dyn_model: type[pm2i.ProcessModelGenerator] = None,
+        process_model: type[pm2i.ProcessModelGenerator] = None,
         dt: float = None,
         compute_u_from_t: Callable[[float], np.ndarray] = None,
-        x0: np.ndarray = None,
         n_chromosomes: int = 2,
         replace_with_best_ratio: float = 0.01,
         can_terminate_after_index: int = 2,
@@ -42,25 +42,31 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         Parameters
         ----------
-        dyn_model : type[pm2i.ProcessModelGenerator]
-            TODO
-        dt: float
-            TODO
-        compute_u_from_t: Callable[[float], np.ndarray]
-            TODO
-        x0: np.ndarray
-            TODO
+        process_model : type[pm2i.ProcessModelGenerator]
+            pm2i.ProcessModelGenerator derived type that will be used, when its
+            constructor is called with a set of identified paramaters,
+            to simulate the response of the identified system.
+        dt: float, optional
+            If None, process model is supposed to be continuous.
+            Else, specifies the sampling time for a discrete process model
+        compute_u_from_t: Callable[[float], np.ndarray], optional
+            Function used to compute the system's input signal at time t.
+            TODO : If None, the input signal at time t will be interpolated from
+            the input array X when using `fit` and `predict`
         n_chromosomes: int
-            TODO
+            Number of sets of system parameters that will be generated randomly
+            when `fit` is called. Each of these sets of parameters will evolve
+            at each iteration of the genetic algorithm in `fit`, so that they
+            produce a simualted system response which is close to the provided
+            data.
         seed: int
             TODO
         chromosome_parameter_ranges : Dict[str, Tuple[float, float]]
             TODO
         """
-        self.dyn_model = dyn_model
+        self.process_model = process_model
         self.dt = dt
         self.compute_u_from_t = compute_u_from_t
-        self.x0 = x0
         self.n_chromosomes = n_chromosomes
         self.replace_with_best_ratio = replace_with_best_ratio
         self.can_terminate_after_index = can_terminate_after_index
@@ -161,17 +167,20 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     def _simulate_chromosome_trajectory(
         self, chromosome_dict: Dict[str, float], dt_data: float, X_t: np.ndarray
     ) -> np.ndarray:
-        pro_model_gen_j: pm2i.ProcessModelGenerator = self.dyn_model(
+        pro_model_gen_j: pm2i.ProcessModelGenerator = self.process_model(
             dt=self.dt, **chromosome_dict
         )
         pm2i_j = pro_model_gen_j.generate_process_model_to_integrate()
+
+        warnings.filterwarnings("default")
         _, _, _, sol_y = pm2i_j.integrate(
             compute_u_from_t=self.compute_u_from_t,
             dt_data=dt_data,
             t_start=X_t[0],
             t_end=X_t[-1] + dt_data,
-            x0=self.x0,
+            x0=self.x0_,
         )
+        warnings.filterwarnings("error")
 
         return sol_y.T
 
@@ -331,6 +340,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         X: np.ndarray,
         y: np.ndarray,
         n_iter: int = 0,
+        x0: np.ndarray = None,
     ) -> "Genetic":
         """Fit the model.
 
@@ -348,6 +358,11 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             which is equivalent to the maximum number of iterations.
             The real number of iterations migh be smaller if the termination
             condition is reached before `n_iter` iterations.
+        x0: np.ndarray
+            Initial state of the system being identified. Should be an array with
+            same dimension as the array returned by the
+            `compute_state_derivative` of the `self.process_model` class.
+            In some cases can be inferred from first datapoints in `X` and `y`.
 
         Returns
         -------
@@ -359,6 +374,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         ValueError
             If constructor or fit parameters are incorrect.
         """
+
+        self.x0_ = x0
 
         self._validate_chromosome_parameter_range()
         self._validate_replacement_ratio()
@@ -380,7 +397,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             output_inverse_delta_list,
         ) = self._preprocessing_input_output_data(X, y)
 
-        # TODO: handle if self.dyn_model is None
+        # TODO: handle if self.process_model is None
         # TODO: handle continuous/discrete sim if self.dt is None or not
         # TODO: check wheter dt = dt_data if dt is not None
         # TODO: handle input fction as an interpolation of X_u if no access to
