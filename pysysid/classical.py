@@ -11,14 +11,14 @@ class Arx(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
     # Array check parameters for :func:`fit` when ``X`` and ``y` are given
     _check_X_y_params: Dict[str, Any] = {
-        'multi_output': True,
-        'y_numeric': True,
+        "multi_output": True,
+        "y_numeric": True,
     }
 
     # Array check parameters for :func:`predict` and :func:`fit` when only
     # ``X`` is given
     _check_array_params: Dict[str, Any] = {
-        'dtype': 'numeric',
+        "dtype": "numeric",
     }
 
     def __init__(
@@ -44,7 +44,7 @@ class Arx(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         y: np.ndarray = None,
         n_inputs: int = 0,
         episode_feature: bool = False,
-    ) -> 'Arx':
+    ) -> "Arx":
         """Fit the model.
 
         Parameters
@@ -91,6 +91,6 @@ class Arx(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     # https://scikit-learn.org/stable/developers/develop.html#estimator-tags
     def _more_tags(self):
         return {
-            'multioutput': True,
-            'multioutput_only': True,
+            "multioutput": True,
+            "multioutput_only": True,
         }
