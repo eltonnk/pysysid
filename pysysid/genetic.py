@@ -3,10 +3,10 @@
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
-import pm2i
 import sklearn.base
-import util
 from numpy.random import default_rng
+
+from . import pm2i, util
 
 
 class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
@@ -148,18 +148,13 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self,
         X: np.ndarray,
         y: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, float, int, List[float]]:
+    ) -> Tuple[np.ndarray, np.ndarray, float, int, np.ndarray]:
         X_t, X_u = util.split_time_input(X)
         dt_data = X_t[1] - X_t[0]
 
         n_outputs = y.shape[1]
-        output_inverse_delta_list = []
-        for i in range(n_outputs):
-            out_max = np.max(y[:, i])
-            out_min = np.min(y[:, i])
-            out_delta = out_max - out_min
-            inverse_out_delta = 1 / out_delta
-            output_inverse_delta_list.append(inverse_out_delta)
+        output_inverse_delta_list = np.max(y, axis=0)
+        output_inverse_delta_list = 1 / output_inverse_delta_list
 
         return X_t, X_u, dt_data, n_outputs, output_inverse_delta_list
 
@@ -178,7 +173,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             x0=self.x0,
         )
 
-        return sol_y
+        return sol_y.T
 
     def _evaluate_chromosome_fitness(
         self,
@@ -202,9 +197,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             normalized_square_error = np.zeros(y.shape)
 
             for i in range(n_outputs):
-                normalized_square_error[:, i] = (
-                    np.squared(sol_y[:, i] - y[:, i]) * output_inverse_delta_list[i]
-                )
+                square = np.square(sol_y[:, i] - y[:, i])
+                inverse_delta = output_inverse_delta_list[i]
+                normalized_square_error[:, i] = square * inverse_delta
 
             normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
             mean_error_per_chromosome[j] = np.mean(normalized_square_error)
@@ -284,6 +279,10 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self._elite_chromosome_error_list[
             generation_index
         ] = self._elite_chromosome_error
+
+        print(
+            f"Generation {generation_index} : Current Error: {self._elite_chromosome_error}"
+        )
 
     def _replace_some_chromosomes_with_elite(
         self, chromosomes: np.ndarray, rng: np.random.Generator
