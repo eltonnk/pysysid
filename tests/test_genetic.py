@@ -101,6 +101,8 @@ class TestGenetic:
     def test_fit(self):
         """Used to test the fit method from the Genetic class."""
 
+        PLOTTING = True
+
         motor_params = {
             "R": 1.0,
             "L": 6e-4,
@@ -127,33 +129,34 @@ class TestGenetic:
             compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
         )
 
-        # fig, ax = plt.subplots(2, 2)
+        if PLOTTING:
+            fig, ax = plt.subplots(2, 2)
 
-        # v = sol_u[0, :]
-        # tau_d = sol_u[1, :]
+            v = sol_u[0, :]
+            tau_d = sol_u[1, :]
 
-        # theta = sol_y[0, :]
-        # omega = sol_y[2, :]
+            theta = sol_y[0, :]
+            omega = sol_y[2, :]
 
-        # ax[0][0].set_xlabel(r"$t$ (s)")
-        # ax[0][0].set_ylabel(r"$v(t)$ (V)")
-        # ax[0][0].plot(sol_t, v, label=r"Voltage Input", color="C0")
-        # ax[0][0].legend(loc="upper right")
+            ax[0][0].set_xlabel(r"$t$ (s)")
+            ax[0][0].set_ylabel(r"$v(t)$ (V)")
+            ax[0][0].plot(sol_t, v, label=r"Voltage Input", color="C0")
+            ax[0][0].legend(loc="upper right")
 
-        # ax[1][0].set_xlabel(r"$t$ (s)")
-        # ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
-        # ax[1][0].plot(sol_t, tau_d, label=r"Torque Disturbance", color="C0")
-        # ax[1][0].legend(loc="upper right")
+            ax[1][0].set_xlabel(r"$t$ (s)")
+            ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
+            ax[1][0].plot(sol_t, tau_d, label=r"Torque Disturbance", color="C0")
+            ax[1][0].legend(loc="upper right")
 
-        # ax[0][1].set_xlabel(r"$t$ (s)")
-        # ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
-        # ax[0][1].plot(sol_t, theta, label=r"Angular Position", color="C0")
-        # ax[0][1].legend(loc="upper right")
+            ax[0][1].set_xlabel(r"$t$ (s)")
+            ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
+            ax[0][1].plot(sol_t, theta, label=r"Angular Position", color="C0")
+            ax[0][1].legend(loc="upper right")
 
-        # ax[1][1].set_xlabel(r"$t$ (s)")
-        # ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
-        # ax[1][1].plot(sol_t, omega, label=r"Angular Velocity", color="C0")
-        # ax[1][1].legend(loc="upper right")
+            ax[1][1].set_xlabel(r"$t$ (s)")
+            ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+            ax[1][1].plot(sol_t, omega, label=r"Angular Velocity", color="C0")
+            ax[1][1].legend(loc="upper right")
 
         X = np.block([[sol_t.reshape(1, len(sol_t)).T, sol_u.T]])
 
@@ -161,7 +164,7 @@ class TestGenetic:
 
         chromosome_parameter_ranges = {}
 
-        range_var = 0.7
+        range_var = 0.99
         for key, value in motor_params.items():
             chromosome_parameter_ranges[key] = (
                 (1 - range_var) * value,
@@ -176,7 +179,7 @@ class TestGenetic:
             replace_with_best_ratio=0.04,
             can_terminate_after_index=10,
             ratio_max_error_for_termination=0.2,
-            seed=2,
+            seed=3,
             chromosome_parameter_ranges=chromosome_parameter_ranges,
         )
 
@@ -184,46 +187,55 @@ class TestGenetic:
 
         best_chromosome = genetic_algo_regressor._elite_chromosome
 
-        # best_chromosome_motor_params = genetic_algo_regressor._gen_chromosome_dict(
-        #     best_chromosome
-        # )
+        if PLOTTING:
+            best_chromosome_motor_params = genetic_algo_regressor._gen_chromosome_dict(
+                best_chromosome
+            )
 
-        # print(f"{best_chromosome_motor_params=}")
+            print(f"{best_chromosome_motor_params=}")
 
-        # motor_fit = Motor(dt=motor_dt, **best_chromosome_motor_params)
-        # motor_pm2i_fit = motor_fit.generate_process_model_to_integrate()
+            motor_fit = Motor(dt=motor_dt, **best_chromosome_motor_params)
+            motor_pm2i_fit = motor_fit.generate_process_model_to_integrate()
 
-        # sol_t_fit, sol_u_fit, _, sol_y_fit = motor_pm2i_fit.integrate(
-        #     compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
-        # )
+            sol_t_fit, sol_u_fit, _, sol_y_fit = motor_pm2i_fit.integrate(
+                compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
+            )
 
-        # v_fit = sol_u_fit[0, :]
-        # tau_d_fit = sol_u_fit[1, :]
+            v_fit = sol_u_fit[0, :]
+            tau_d_fit = sol_u_fit[1, :]
 
-        # theta_fit = sol_y_fit[0, :]
-        # omega_fit = sol_y_fit[2, :]
+            theta_fit = sol_y_fit[0, :]
+            omega_fit = sol_y_fit[2, :]
 
-        # ax[0][0].set_xlabel(r"$t$ (s)")
-        # ax[0][0].set_ylabel(r"$v(t)$ (V)")
-        # ax[0][0].plot(sol_t_fit, v_fit, label=r"Voltage Input - Best Fit", color="C1")
-        # ax[0][0].legend(loc="upper right")
+            ax[0][0].set_xlabel(r"$t$ (s)")
+            ax[0][0].set_ylabel(r"$v(t)$ (V)")
+            ax[0][0].plot(
+                sol_t_fit, v_fit, label=r"Voltage Input - Best Fit", color="C1"
+            )
+            ax[0][0].legend(loc="upper right")
 
-        # ax[1][0].set_xlabel(r"$t$ (s)")
-        # ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
-        # ax[1][0].plot(sol_t_fit, tau_d_fit, label=r"Torque Disturbance - Best Fit", color="C1")
-        # ax[1][0].legend(loc="upper right")
+            ax[1][0].set_xlabel(r"$t$ (s)")
+            ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
+            ax[1][0].plot(
+                sol_t_fit, tau_d_fit, label=r"Torque Disturbance - Best Fit", color="C1"
+            )
+            ax[1][0].legend(loc="upper right")
 
-        # ax[0][1].set_xlabel(r"$t$ (s)")
-        # ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
-        # ax[0][1].plot(sol_t_fit, theta_fit, label=r"Angular Position  - Best Fit", color="C1")
-        # ax[0][1].legend(loc="upper right")
+            ax[0][1].set_xlabel(r"$t$ (s)")
+            ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
+            ax[0][1].plot(
+                sol_t_fit, theta_fit, label=r"Angular Position  - Best Fit", color="C1"
+            )
+            ax[0][1].legend(loc="upper right")
 
-        # ax[1][1].set_xlabel(r"$t$ (s)")
-        # ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
-        # ax[1][1].plot(sol_t_fit, omega_fit, label=r"Angular Velocity  - Best Fit", color="C1")
-        # ax[1][1].legend(loc="upper right")
+            ax[1][1].set_xlabel(r"$t$ (s)")
+            ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+            ax[1][1].plot(
+                sol_t_fit, omega_fit, label=r"Angular Velocity  - Best Fit", color="C1"
+            )
+            ax[1][1].legend(loc="upper right")
 
-        # plt.show()
+            plt.show()
 
         original_params = np.array(list(motor_params.values()))
 
