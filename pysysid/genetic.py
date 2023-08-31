@@ -1,6 +1,6 @@
 """Genetic algorithm system identification methods."""
 
-import warnings
+
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
@@ -172,7 +172,6 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         )
         pm2i_j = pro_model_gen_j.generate_process_model_to_integrate()
 
-        warnings.filterwarnings("default")
         _, _, _, sol_y = pm2i_j.integrate(
             compute_u_from_t=self.compute_u_from_t,
             dt_data=dt_data,
@@ -180,9 +179,62 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             t_end=X_t[-1] + dt_data,
             x0=self.x0_,
         )
-        warnings.filterwarnings("error")
 
         return sol_y.T
+
+    def _compute_chromosome_mean_error(
+        self,
+        y: np.ndarray,
+        sol_y: np.ndarray,
+        n_outputs: int,
+        output_inverse_delta_list: np.ndarray,
+    ) -> float:
+        # TODO: deal with unstable error, create a self.is_unstable_response_
+        # parameter in self.fit so that we can instead only compare the
+        if sol_y.shape[0] < y.shape[0]:
+            # Numerical integration blew up, and scipy.integrate cuts the
+            # simulation short when state values are +/- inf. The parameters
+            #  in this specific chromosome produce an unstable system
+            return np.nan
+
+        normalized_square_error = np.zeros(y.shape)
+
+        for i in range(n_outputs):
+            square = np.square(sol_y[:, i] - y[:, i])
+            inverse_delta = output_inverse_delta_list[i]
+            normalized_square_error[:, i] = square * inverse_delta
+
+        normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
+        return np.mean(normalized_square_error)
+
+    def _compute_fitness_per_chromosome_from_error(
+        self,
+        mean_error_per_chromosome: np.ndarray,
+    ):
+        fitness_per_chromosome = np.zeros((self.n_chromosomes))
+        # Normalize error to get fitness
+        inverse_max_error = 1 / np.max(
+            mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
+        )
+        fitness_per_chromosome = (
+            -1 * mean_error_per_chromosome + 1
+        ) * inverse_max_error
+
+        min_fitness = np.min(fitness_per_chromosome[~np.isnan(fitness_per_chromosome)])
+        fitness_per_chromosome = fitness_per_chromosome - min_fitness
+
+        inverse_max_fitness = np.max(
+            fitness_per_chromosome[~np.isnan(fitness_per_chromosome)]
+        )
+        fitness_per_chromosome = fitness_per_chromosome * inverse_max_fitness
+
+        bool_arr_where_nan = np.isnan(fitness_per_chromosome)
+        # replace all nan errors (caused by unstable plants) by zero fitnesses
+        fitness_per_chromosome[bool_arr_where_nan] = np.zeros(
+            (np.count_nonzero(bool_arr_where_nan))
+        )
+
+        return fitness_per_chromosome
 
     def _evaluate_chromosome_fitness(
         self,
@@ -193,7 +245,6 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         y: np.ndarray,
         output_inverse_delta_list: List[float],
     ) -> Tuple[np.ndarray, np.ndarray]:
-        fitness_per_chromosome = np.zeros((self.n_chromosomes))
         mean_error_per_chromosome = np.zeros((self.n_chromosomes))
         for j in range(self.n_chromosomes):
             # Simulate model
@@ -202,28 +253,16 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 chromosome_dict=chromosome_j_dict, dt_data=dt_data, X_t=X_t
             )
 
-            # TODO: verification sol_y has same shape as y
-            normalized_square_error = np.zeros(y.shape)
+            mean_error_per_chromosome[j] = self._compute_chromosome_mean_error(
+                y,
+                sol_y,
+                n_outputs,
+                output_inverse_delta_list,
+            )
 
-            for i in range(n_outputs):
-                square = np.square(sol_y[:, i] - y[:, i])
-                inverse_delta = output_inverse_delta_list[i]
-                normalized_square_error[:, i] = square * inverse_delta
-
-            normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
-            mean_error_per_chromosome[j] = np.mean(normalized_square_error)
-
-        # Normalize error to get fitness
-        inverse_max_error = 1 / np.max(mean_error_per_chromosome)
-        fitness_per_chromosome = (
-            -1 * mean_error_per_chromosome + 1
-        ) * inverse_max_error
-
-        min_fitness = np.min(fitness_per_chromosome)
-        fitness_per_chromosome = fitness_per_chromosome - min_fitness
-
-        inverse_max_fitness = np.max(fitness_per_chromosome)
-        fitness_per_chromosome = fitness_per_chromosome * inverse_max_fitness
+        fitness_per_chromosome = self._compute_fitness_per_chromosome_from_error(
+            mean_error_per_chromosome
+        )
 
         return fitness_per_chromosome, mean_error_per_chromosome
 
@@ -272,16 +311,24 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         generation_index: int,
     ):
         if generation_index == 0:
-            self._elite_chromosome_error = np.min(mean_error_per_chromosome)
-            index_elite_chromosome = np.argmin(mean_error_per_chromosome)
+            self._elite_chromosome_error = np.min(
+                mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
+            )
+            index_elite_chromosome = np.argmin(
+                mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
+            )
             self._elite_chromosome = chromosomes[:, index_elite_chromosome]
             return
 
-        generational_min_chromosome_error = np.min(mean_error_per_chromosome)
+        generational_min_chromosome_error = np.min(
+            mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
+        )
 
         if generational_min_chromosome_error < self._elite_chromosome_error:
             self._elite_chromosome_error = generational_min_chromosome_error
-            index_elite_chromosome = np.argmin(mean_error_per_chromosome)
+            index_elite_chromosome = np.argmin(
+                mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
+            )
             self._elite_chromosome = chromosomes[:, index_elite_chromosome]
 
         # This list lets us see progress of chromosome error
