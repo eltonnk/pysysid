@@ -11,7 +11,16 @@ from . import pm2i, util
 
 
 class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
-    """Genetic algorithm model."""
+    """Genetic algorithm model.
+
+    TODO: add references
+    References
+    ----------
+    https://ieeexplore.ieee.org/document/1490788
+
+    https://www.sciencedirect.com/science/article/pii/S0019057807000237
+
+    """
 
     # Array check parameters for :func:`fit` when ``X`` and ``y` are given
     _check_X_y_params: Dict[str, Any] = {
@@ -202,6 +211,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         for i in range(n_outputs):
             square = np.square(sol_y[:, i] - y[:, i])
             inverse_delta = output_inverse_delta_list[i]
+            # the error fo each output is normalized so that no output error
+            # supersedes another output in the euclidean norm
+            # see https://ieeexplore.ieee.org/document/1490788
             normalized_square_error[:, i] = square * inverse_delta
 
         normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
