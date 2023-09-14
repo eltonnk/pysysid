@@ -4,6 +4,7 @@ from typing import Callable, Dict, Tuple
 
 import numpy as np
 import scipy
+from numpy.random import default_rng
 
 
 class ProcessModelToIntegrate:  # or, when shortened, pm2i
@@ -29,6 +30,28 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
     fct_for_y : Callable[[float, np.ndarray, np.ndarray], np.ndarray]
         Computes the system's output at time t given the state and
         input at that same time.
+    E_v : np.ndarrray, optional
+        Square covariance matrix of the zero mean process noise.
+        Process noise will be added when computing state derivatives with
+        `NoisyProcessModelToIntegrate`.
+        The last x inputs in the input vector `total_input` when calling
+        `compute_state_derivative` will be considered noise
+        inputs if E_v is not None, with x being the number of rows in the E_v
+        matrix.
+    E_w : np.ndarray, optional
+        Square covariance matrix of the zero mean measurement noise.
+        Measurement noise will be added when computing outputs with
+        `NoisyProcessModelToIntegrate`.
+        The last x inputs in the input vector `total_input` when calling
+        `compute_output` will be considered noise
+        inputs if E_v is not None, with x being the number of rows in the E_v
+        matrix.
+    rng : np.random.Generator
+        Random number generator. Should be provided when E_v or E_w is not None,
+        to generate the process and measurements noises. If not provided,
+        this class will create its own random number generator. This makes it so
+        the user can't provide a seed to the random number generator and thus
+        the results when integrating states and outputs will not be repeatable.
     """
 
     def __init__(
@@ -38,6 +61,9 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         nbr_outputs: int,
         fct_for_x_dot: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         fct_for_y: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
+        E_v: np.ndarray = None,
+        E_w: np.ndarray = None,
+        rng: np.random.Genator = None,
     ):
         self.nbr_states: int = nbr_states
         self.nbr_inputs: int = nbr_inputs
@@ -49,8 +75,46 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             [float, np.ndarray, np.ndarray], np.ndarray
         ] = fct_for_y
 
+        if E_v is not None:
+            (
+                self.E_v,
+                self.nbr_process_noise_inputs,
+            ) = self._sanity_check_covariance_matrix(E_v)
+            self.mean_v = np.zeros((self.nbr_process_noise_inputs))
+        if E_w is not None:
+            (
+                self.E_w,
+                self.nbr_measurement_noise_inputs,
+            ) = self._sanity_check_covariance_matrix(E_w)
+            self.mean_w = np.zeros((self.nbr_measurement_noise_inputs))
+
+        if E_v is not None or E_w is not None:
+            if rng:
+                self.rng = rng
+            else:
+                self.rng = default_rng()
+
         self.ran_checks_for_compute_state_derivative: bool = False
         self.ran_checks_for_compute_output: bool = False
+
+    def _sanity_check_covariance_matrix(self, cov_matrix: np.ndarray) -> np.ndarray:
+        shape = cov_matrix.shape
+        dimension = len(shape)
+        if dimension != 2:
+            raise ValueError(
+                f"""Covariance matrix should be a 2-dimensional 
+                             array. Current dimension is {dimension}"""
+            )
+        rows = shape[0]
+        cols = shape[1]
+        if rows != cols:
+            raise ValueError(
+                f"""Covariance matrix is not square. Number of 
+                             rows: {rows}. Number of columns: {cols}."""
+            )
+
+        nbr_noise_inputs = rows
+        return cov_matrix, nbr_noise_inputs
 
     def _check_valid_state(self, x: np.ndarray) -> np.ndarray:
         if x.shape[0] != self.nbr_states:
@@ -101,6 +165,11 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         x = self._check_valid_state(x)
         if not self.ran_checks_for_compute_state_derivative:
             self._check_valid_input(u)
+
+        if self.E_v is not None:
+            process_noise = self.rng.multivariate_normal(self.mean_v, self.E_v)
+            u = np.vstack((u, process_noise))
+
         x_dot = self.fct_for_x_dot(t, x, u)
 
         if not self.ran_checks_for_compute_state_derivative:
@@ -135,6 +204,10 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         x = self._check_valid_state(x)
         if not self.ran_checks_for_compute_output:
             self._check_valid_input(u)
+
+        if self.E_w is not None:
+            measurement_noise = self.rng.multivariate_normal(self.mean_w, self.E_w)
+            u = np.vstack((u, measurement_noise))
 
         y = self.fct_for_y(t, x, u)
         if not self.ran_checks_for_compute_output:
@@ -275,16 +348,40 @@ class ProcessModelGenerator:
 
     Parameters
     ----------
-    dt: float, optional
+    dt : float, optional
         If None, process model is supposed to be continuous.
         Else, specifies the sampling time for a discrete process model
-    **kwargs: Dict[str, float]
+    E_v : np.ndarrray, optional
+        Square covariance matrix of the zero mean process noise.
+        Process noise will be added when computing state derivatives with
+        `NoisyProcessModelToIntegrate`.
+        The last x inputs in the input vector `total_input` when calling
+        `compute_state_derivative` will be considered noise
+        inputs if E_v is not None, with x being the number of rows in the E_v
+        matrix.
+    E_w : np.ndarray, optional
+        Square covariance matrix of the zero mean measurement noise.
+        Measurement noise will be added when computing outputs with
+        `NoisyProcessModelToIntegrate`.
+        The last x inputs in the input vector `total_input` when calling
+        `compute_output` will be considered noise
+        inputs if E_v is not None, with x being the number of rows in the E_v
+        matrix.
+    **kwargs : Dict[str, float]
         Process model parameters that define physical quantities within the
         system.
     """
 
-    def __init__(self, dt: float = None, **kwargs: Dict[str, float]):
+    def __init__(
+        self,
+        dt: float = None,
+        E_v: np.ndarray = None,
+        E_w: np.ndarray = None,
+        **kwargs: Dict[str, float],
+    ):
         self.dt = dt
+        self.E_v = E_v
+        self.E_w = E_w
         self.params: Dict[str, float] = kwargs
 
     def compute_state_derivative(
@@ -320,9 +417,9 @@ class ProcessModelGenerator:
         ----------
         t : float
             Time at which the output should be computed.
-        x : np.ndarray
+        total_state : np.ndarray
             The system's state at time `t`
-        u : np.ndarray
+        total_input : np.ndarray
             The system's input at time `t`
 
         Returns
@@ -345,6 +442,100 @@ class ProcessModelGenerator:
             Object used to simulate the response of the process model
             defined by this instance of the `ProcessModelGenerator` class to a
             given output signal.
+
+        """
+        raise NotImplementedError("Derived class should override this method")
+
+    def compute_df_dx(
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
+    ) -> np.ndarray:
+        """Derivate of the process vector function f (such that x_dot = f(x,u,v), with
+        x the state, u the input and v the process noise) relative to the state vector.
+
+        Parameters
+        ----------
+        t : float
+            Time at which the derivative should be computed.
+        total_state : np.ndarray
+            The state around which the derivative should be computed at time `t`
+        total_input : np.ndarray
+            The input around which the derivative should be computed at time `t`
+
+        Returns
+        -------
+        np.ndarray
+            The derivative at time `t`
+
+        """
+
+        raise NotImplementedError("Derived class should override this method")
+
+    def compute_df_dw(
+        self, total_state: np.ndarray, total_input: np.ndarray
+    ) -> np.ndarray:
+        """Derivate of the process vector function f (such that x_dot = f(x,u,v), with
+        x the state, u the input and v the process noise) relative to the process noise vector.
+
+        Parameters
+        ----------
+        t : float
+            Time at which the derivative should be computed.
+        total_state : np.ndarray
+            The state around which the derivative should be computed at time `t`
+        total_input : np.ndarray
+            The input around which the derivative should be computed at time `t`
+
+        Returns
+        -------
+        np.ndarray
+            The derivative at time `t`
+
+        """
+
+        raise NotImplementedError("Derived class should override this method")
+
+    def compute_dg_dx(
+        self, total_state: np.ndarray, total_input: np.ndarray
+    ) -> np.ndarray:
+        """Derivate of the output vector function g (such that y = f(x,u,w), with
+        x the state, u the input and w the measurment noise) relative to the state vector.
+
+        Parameters
+        ----------
+        t : float
+            Time at which the derivative should be computed.
+        total_state : np.ndarray
+            The state around which the derivative should be computed at time `t`
+        total_input : np.ndarray
+            The input around which the derivative should be computed at time `t`
+
+        Returns
+        -------
+        np.ndarray
+            The derivative at time `t`
+
+        """
+        raise NotImplementedError("Derived class should override this method")
+
+    def compute_dg_dv(
+        self, total_state: np.ndarray, total_input: np.ndarray
+    ) -> np.ndarray:
+        """Derivate of the output vector function g (such that y = f(x,u,w), with
+        x the state, u the input and w the measurment noise) relative to the measurement noise vector.
+
+        Parameters
+        ----------
+        t : float
+            Time at which the derivative should be computed.
+        total_state : np.ndarray
+            The state around which the derivative should be computed at time `t`
+        total_input : np.ndarray
+            The input around which the derivative should be computed at time `t`
+
+        Returns
+        -------
+        np.ndarray
+            The derivative at time `t`
 
         """
         raise NotImplementedError("Derived class should override this method")
