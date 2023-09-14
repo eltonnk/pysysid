@@ -30,15 +30,15 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
     fct_for_y : Callable[[float, np.ndarray, np.ndarray], np.ndarray]
         Computes the system's output at time t given the state and
         input at that same time.
-    E_v : np.ndarrray, optional
+    E_w : np.ndarrray, optional
         Square covariance matrix of the zero mean process noise.
         Process noise will be added when computing state derivatives with
         `NoisyProcessModelToIntegrate`.
         The last x inputs in the input vector `total_input` when calling
         `compute_state_derivative` will be considered noise
-        inputs if E_v is not None, with x being the number of rows in the E_v
+        inputs if E_w is not None, with x being the number of rows in the E_w
         matrix.
-    E_w : np.ndarray, optional
+    E_v : np.ndarray, optional
         Square covariance matrix of the zero mean measurement noise.
         Measurement noise will be added when computing outputs with
         `NoisyProcessModelToIntegrate`.
@@ -61,8 +61,12 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         nbr_outputs: int,
         fct_for_x_dot: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         fct_for_y: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
-        E_v: np.ndarray = None,
+        df_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
+        df_dw: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
+        dg_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
+        dg_dv: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         E_w: np.ndarray = None,
+        E_v: np.ndarray = None,
         rng: np.random.Genator = None,
     ):
         self.nbr_states: int = nbr_states
@@ -75,20 +79,25 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             [float, np.ndarray, np.ndarray], np.ndarray
         ] = fct_for_y
 
-        if E_v is not None:
-            (
-                self.E_v,
-                self.nbr_process_noise_inputs,
-            ) = self._sanity_check_covariance_matrix(E_v)
-            self.mean_v = np.zeros((self.nbr_process_noise_inputs))
+        self.df_dx = df_dx
+        self.df_dw = df_dw
+        self.dg_dx = dg_dx
+        self.dg_dv = dg_dv
+
         if E_w is not None:
             (
                 self.E_w,
-                self.nbr_measurement_noise_inputs,
+                self.nbr_process_noise_inputs,
             ) = self._sanity_check_covariance_matrix(E_w)
+            self.mean_w = np.zeros((self.nbr_process_noise_inputs))
+        if E_v is not None:
+            (
+                self.E_v,
+                self.nbr_measurement_noise_inputs,
+            ) = self._sanity_check_covariance_matrix(E_v)
             self.mean_w = np.zeros((self.nbr_measurement_noise_inputs))
 
-        if E_v is not None or E_w is not None:
+        if E_w is not None or E_v is not None:
             if rng:
                 self.rng = rng
             else:
@@ -96,6 +105,10 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         self.ran_checks_for_compute_state_derivative: bool = False
         self.ran_checks_for_compute_output: bool = False
+        self.ran_checks_df_dx: bool = False
+        self.ran_checks_df_dw: bool = False
+        self.ran_checks_dg_dx: bool = False
+        self.ran_checks_dg_dv: bool = False
 
     def _sanity_check_covariance_matrix(self, cov_matrix: np.ndarray) -> np.ndarray:
         shape = cov_matrix.shape
@@ -138,6 +151,14 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
                 {self.nbr_outputs} outputs, {y.shape} outputs were provided."""
             )
 
+    def _check_valid_matrix(self, mat: np.ndarray, n_rows: int, n_cols: int, name: str):
+        shape = mat.shape
+        if shape != (n_rows, n_cols):
+            raise ValueError(
+                f"""Did not produce correct shape for matrix {name}. Shape 
+                should be ({n_rows, n_cols}), but is actually {shape}."""
+            )
+
     def compute_state_derivative(
         self,
         t: float,
@@ -166,8 +187,8 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         if not self.ran_checks_for_compute_state_derivative:
             self._check_valid_input(u)
 
-        if self.E_v is not None:
-            process_noise = self.rng.multivariate_normal(self.mean_v, self.E_v)
+        if self.E_w is not None:
+            process_noise = self.rng.multivariate_normal(self.mean_w, self.E_w)
             u = np.vstack((u, process_noise))
 
         x_dot = self.fct_for_x_dot(t, x, u)
@@ -205,8 +226,8 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         if not self.ran_checks_for_compute_output:
             self._check_valid_input(u)
 
-        if self.E_w is not None:
-            measurement_noise = self.rng.multivariate_normal(self.mean_w, self.E_w)
+        if self.E_v is not None:
+            measurement_noise = self.rng.multivariate_normal(self.mean_v, self.E_v)
             u = np.vstack((u, measurement_noise))
 
         y = self.fct_for_y(t, x, u)
@@ -214,6 +235,54 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             self._check_valid_output(y)
             self.ran_checks_for_compute_output = True
         return y
+
+    def compute_df_dx(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        x = self._check_valid_state(x)
+        if not self.ran_checks_for_df_dx:
+            self._check_valid_input(u)
+
+        df_dx = self.df_dx(t, x, u)
+        if not self.ran_checks_for_df_dx:
+            self._check_valid_matrix(df_dx, self.nbr_states, self.nbr_states, "df_dx")
+            self.ran_checks_for_df_dx = True
+
+        return df_dx
+
+    def compute_df_dw(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        x = self._check_valid_state(x)
+        if not self.ran_checks_for_df_dw:
+            self._check_valid_input(u)
+
+        df_dw = self.df_dx(t, x, u)
+        if not self.ran_checks_for_df_dw:
+            self._check_valid_matrix(df_dw, self.nbr_states, self.nbr_inputs, "df_dw")
+            self.ran_checks_for_df_dw = True
+
+        return df_dw
+
+    def compute_dg_dx(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        x = self._check_valid_state(x)
+        if not self.ran_checks_for_dg_dx:
+            self._check_valid_input(u)
+
+        dg_dx = self.df_dx(t, x, u)
+        if not self.ran_checks_for_dg_dx:
+            self._check_valid_matrix(dg_dx, self.nbr_states, self.nbr_states, "dg_dx")
+            self.ran_checks_for_dg_dx = True
+
+        return dg_dx
+
+    def compute_dg_dv(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        x = self._check_valid_state(x)
+        if not self.ran_checks_for_dg_dv:
+            self._check_valid_input(u)
+
+        dg_dv = self.df_dx(t, x, u)
+        if not self.ran_checks_for_dg_dv:
+            self._check_valid_matrix(dg_dv, self.nbr_outputs, self.nbr_inputs, "dg_dv")
+            self.ran_checks_for_dg_dv = True
+
+        return dg_dv
 
     def generate_fction_to_integrate(
         self,
@@ -351,15 +420,15 @@ class ProcessModelGenerator:
     dt : float, optional
         If None, process model is supposed to be continuous.
         Else, specifies the sampling time for a discrete process model
-    E_v : np.ndarrray, optional
+    E_w : np.ndarrray, optional
         Square covariance matrix of the zero mean process noise.
         Process noise will be added when computing state derivatives with
         `NoisyProcessModelToIntegrate`.
         The last x inputs in the input vector `total_input` when calling
         `compute_state_derivative` will be considered noise
-        inputs if E_v is not None, with x being the number of rows in the E_v
+        inputs if E_w is not None, with x being the number of rows in the E_w
         matrix.
-    E_w : np.ndarray, optional
+    E_v : np.ndarray, optional
         Square covariance matrix of the zero mean measurement noise.
         Measurement noise will be added when computing outputs with
         `NoisyProcessModelToIntegrate`.
@@ -375,13 +444,13 @@ class ProcessModelGenerator:
     def __init__(
         self,
         dt: float = None,
-        E_v: np.ndarray = None,
         E_w: np.ndarray = None,
+        E_v: np.ndarray = None,
         **kwargs: Dict[str, float],
     ):
         self.dt = dt
-        self.E_v = E_v
         self.E_w = E_w
+        self.E_v = E_v
         self.params: Dict[str, float] = kwargs
 
     def compute_state_derivative(
@@ -449,8 +518,8 @@ class ProcessModelGenerator:
     def compute_df_dx(
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
-        """Derivate of the process vector function f (such that x_dot = f(x,u,v), with
-        x the state, u the input and v the process noise) relative to the state vector.
+        """Derivate of the process vector function f (such that x_dot = f(x,u,w), with
+        x the state, u the input and w the process noise) relative to the state vector.
 
         Parameters
         ----------
@@ -473,8 +542,8 @@ class ProcessModelGenerator:
     def compute_df_dw(
         self, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
-        """Derivate of the process vector function f (such that x_dot = f(x,u,v), with
-        x the state, u the input and v the process noise) relative to the process noise vector.
+        """Derivate of the process vector function f (such that x_dot = f(x,u,w), with
+        x the state, u the input and w the process noise) relative to the process noise vector.
 
         Parameters
         ----------
@@ -497,8 +566,8 @@ class ProcessModelGenerator:
     def compute_dg_dx(
         self, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
-        """Derivate of the output vector function g (such that y = f(x,u,w), with
-        x the state, u the input and w the measurment noise) relative to the state vector.
+        """Derivate of the output vector function g (such that y = g(x,u,v), with
+        x the state, u the input and v the measurment noise) relative to the state vector.
 
         Parameters
         ----------
@@ -520,8 +589,8 @@ class ProcessModelGenerator:
     def compute_dg_dv(
         self, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
-        """Derivate of the output vector function g (such that y = f(x,u,w), with
-        x the state, u the input and w the measurment noise) relative to the measurement noise vector.
+        """Derivate of the output vector function g (such that y = g(x,u,v), with
+        x the state, u the input and v the measurment noise) relative to the measurement noise vector.
 
         Parameters
         ----------
