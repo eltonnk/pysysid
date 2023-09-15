@@ -14,6 +14,8 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     def __init__(
         self,
         process_model: type[pm2i.ProcessModelGenerator] = None,
+        physical_constraint_matrix_A: np.ndarray = None,
+        physical_constraint_vector_b: np.ndarray = None,
         n_params: int = 1,
         n_jobs=None,
     ) -> None:
@@ -28,11 +30,19 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         Parameters
         ----------
         process_model : type[pm2i.ProcessModelGenerator]
-            pm2i.ProcessModelGenerator derived type that will be used, when its
-            constructor is called with a set of identified paramaters,
-            to simulate the response of the identified system.
+            pm2i.ProcessModelGenerator derived type that will be used to compute
+            the state derivative (x_dot = f(x,u)) and output (y = g(x,u)) of the
+            system  to be identified at time `t`.
+            Should also define
+            The last `n_params` states in the state vector of `process_model`
+            should be states representing the physical parameters that need to
+            be identified with the CEXP. Their derivative, as defined in the
+            `compute_state_derivative` of the `ProcessModelGenerator` derived
+            class of `process_model` should always be equal to zero.
         """
         self.process_model = process_model
+        self.physical_constraint_matrix_A = physical_constraint_matrix_A
+        self.physical_constraint_vector_b = physical_constraint_vector_b
         self.n_params = n_params
         self.n_jobs = n_jobs
 
@@ -43,9 +53,8 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         r_k = y_k - y_hat_k_given_km1
         return r_k
 
-    def _innovation_covariance_matrix(
+    def _compute_output_derivatives_around(
         self,
-        E_x_k_given_km1: np.ndarray,
         t: float,
         x_hat_k_given_km1: np.ndarray,
         u_k: np.ndarray,
@@ -53,37 +62,202 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         H_x_k = self.pm2i_.compute_dg_dx(t, x_hat_k_given_km1, u_k)
         H_v_k = self.pm2i_.compute_dg_dv(t, x_hat_k_given_km1, u_k)
 
+        return H_x_k, H_v_k
+
+    def _innovation_covariance_matrix(
+        self,
+        E_x_k_given_km1: np.ndarray,
+        H_x_k: np.ndarray,
+        H_v_k: np.ndarray,
+    ) -> np.ndarray:
         E_y_k = H_x_k @ E_x_k_given_km1 @ H_x_k.T + H_v_k @ self.E_v_ @ H_v_k.T
 
-        return E_y_k, H_x_k
+        return E_y_k
 
     def _kalman_gain(
-        E_x_k_given_km1: np.ndarray, H_x_k: np.ndarray, E_y_k: np.ndarray
+        self, E_x_k_given_km1: np.ndarray, H_x_k: np.ndarray, E_y_k: np.ndarray
     ) -> np.ndarray:
         L_tilde_k = np.linalg.solve(E_y_k.T, H_x_k @ E_x_k_given_km1.T).T
         return L_tilde_k
 
     def _state_estimate_for_measurement(
-        x_hat_k_given_km1: np.ndarray, L_tilde_k: np.ndarray, r_k: np.ndarray
+        self, x_hat_k_given_km1: np.ndarray, L_tilde_k: np.ndarray, r_k: np.ndarray
     ) -> np.ndarray:
         x_tilde_k_given_k = x_hat_k_given_km1 + L_tilde_k @ r_k
 
         return x_tilde_k_given_k
 
+    def _check_constraints(
+        self,
+        x_tilde_k_given_k: np.ndarray,
+        L_tilde_k: np.ndarray,
+        x_hat_k_given_km1: np.ndarray,
+        r_k: np.ndarray,
+        E_y_k: np.ndarray,
+    ) -> np.ndarray:
+        index_inactive_constraints = (
+            self.physical_constraint_matrix_A @ x_tilde_k_given_k
+            - self.physical_constraint_vector_b
+            > 0
+        )
+        if np.all(index_inactive_constraints):
+            L_k = L_tilde_k
+            x_hat_k_given_k = x_tilde_k_given_k
+            return L_k, x_hat_k_given_k
+
+        index_active_constraints = np.logical_not(index_inactive_constraints)
+
+        A_a = self.physical_constraint_matrix_A[index_active_constraints, :]
+        b_a = self.physical_constraint_matrix_A[index_active_constraints, :]
+
+        A_a_T = A_a.T
+
+        temp1 = np.linalg.solve(E_y_k.T, r_k).T
+
+        temp2 = np.linalg.solve(A_a @ A_a_T, A_a @ x_hat_k_given_km1 - b_a)
+
+        L_k = L_tilde_k - (1 / temp1 @ r_k) * A_a_T @ temp2 @ temp1
+
+        x_hat_k_given_k = x_hat_k_given_km1 + L_k @ r_k
+
+        return L_k, x_hat_k_given_k
+
+    def _state_covariance_for_measurement(
+        self,
+        L_k: np.ndarray,
+        H_x_k: np.ndarray,
+        E_x_k_given_km1: np.ndarray,
+        H_v_k: np.ndarray,
+    ):
+        size_I = L_k.shape[0]
+        temp1 = np.eye(size_I) - L_k @ H_x_k
+        temp2 = L_k @ H_v_k
+        E_x_k_given_k = temp1 @ E_x_k_given_km1 @ temp1.T + temp2 @ self.E_v_ @ temp2.T
+
+        return E_x_k_given_k
+
+    def _measurement_update(
+        self,
+        y_k: np.ndarray,
+        t: float,
+        x_hat_k_given_km1: np.ndarray,
+        u_k: np.ndarray,
+        E_x_k_given_km1: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        r_k = self._measurement_innovation(y_k, t, x_hat_k_given_km1, u_k)
+        H_x_k, H_v_k = self._compute_output_derivatives_around(
+            t, x_hat_k_given_km1, u_k
+        )
+        E_y_k = self._innovation_covariance_matrix(E_x_k_given_km1, H_x_k, H_v_k)
+        L_tilde_k = self._kalman_gain(E_x_k_given_km1, H_x_k, E_y_k)
+        x_tilde_k_given_k = self._state_estimate_for_measurement(
+            x_hat_k_given_km1, L_tilde_k, r_k
+        )
+        L_k, x_hat_k_given_k = self._check_constraints(
+            x_tilde_k_given_k, L_tilde_k, x_hat_k_given_km1, r_k, E_y_k
+        )
+        E_x_k_given_k = self._state_covariance_for_measurement(
+            L_k, H_x_k, E_x_k_given_km1, H_v_k
+        )
+
+        return x_hat_k_given_k, E_x_k_given_k
+
+    def _state_estimate_for_time_update(
+        self, x_hat_k_given_k: np.ndarray, dt_data: float, t: float, u_k: np.ndarray
+    ):
+        # TODO: figure better method to do integral
+        # can't use data at k+1 (y_kp1 and u_kp1) since y _kp1 does not give us the state
+        integral = dt_data * self.pm2i_.compute_state_derivative(
+            t, x_hat_k_given_k, u_k
+        )
+        x_hat_kp1_given_k = x_hat_k_given_k + integral
+
+        return x_hat_kp1_given_k
+
+    def _state_covariance_for_time_update(
+        self,
+        E_x_k_given_k: np.ndarray,
+        dt_data: float,
+        t: float,
+        x_hat_k_given_k: np.ndarray,
+        u_k: np.ndarray,
+    ):
+        phi_x_k, phi_w_k, E_w_d = pm2i.discretize_process_model_linearized_around_x(
+            self.pm2i_, dt_data, t, x_hat_k_given_k, u_k
+        )
+
+        E_kp1_given_k = (
+            phi_x_k @ E_x_k_given_k @ phi_x_k.T + phi_w_k @ E_w_d @ phi_w_k.T
+        )
+
+        return E_kp1_given_k
+
+    def _time_update(
+        self,
+        t: float,
+        x_hat_k_given_k: np.ndarray,
+        u_k: np.ndarray,
+        E_x_k_given_k: np.ndarray,
+        dt_data: float,
+    ):
+        x_hat_kp1_given_k = self._state_estimate_for_time_update(
+            x_hat_k_given_k, dt_data, t, u_k
+        )
+
+        E_kp1_given_k = self._state_covariance_for_time_update(
+            self,
+            E_x_k_given_k,
+            dt_data,
+            t,
+            x_hat_k_given_k,
+            u_k,
+        )
+        return x_hat_kp1_given_k, E_kp1_given_k
+
     def fit(
         self,
         X: np.ndarray,
         y: np.ndarray,
-        n_iter: int = 0,
         x0: np.ndarray = None,
-        E_w_0: np.ndarray = None,
+        E_x_0: np.ndarray = None,
+        E_w: np.ndarray = None,
         E_v: np.ndarray = None,
     ) -> "CEKF":
         # TODO: check that process model has noise matrices
+        # TODO: check that both constraint A and b are defined if one of the two
+        # is defined
         self.pm2i_: pm2i.ProcessModelToIntegrate = (
             self.process_model.generate_process_model_to_integrate()
         )
         self.E_v_ = E_v
+        self.E_W_ = E_w
 
         X_t, X_u = util.split_time_input(X)
-        self.dt_data_ = X_t[1] - X_t[0]
+        dt_data = X_t[1] - X_t[0]
+
+        # not same convetnion for learning algorithms and systems engineering
+        T = X_t.T
+        U = X_u.T
+        Y = y.T
+
+        del X_t, X_u
+
+        x_hat_k_given_km1 = x0
+        E_x_k_given_km1 = E_x_0
+
+        for i, t in enumerate(T):
+            u_k = U[i, :]
+            y_k = Y[i, :]
+
+            x_hat_k_given_k, E_x_k_given_k = self._measurement_update(
+                y_k, t, x_hat_k_given_km1, u_k, E_x_k_given_km1
+            )
+
+            x_hat_kp1_given_k, E_kp1_given_k = self._time_update(
+                t, x_hat_k_given_k, u_k, E_x_k_given_k, dt_data
+            )
+
+            x_hat_k_given_km1 = x_hat_kp1_given_k
+            E_x_k_given_km1 = E_kp1_given_k
+
+        self.optimal_parameters_ = x_hat_k_given_km1[-self.n_params :, :]

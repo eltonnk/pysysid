@@ -62,6 +62,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         fct_for_x_dot: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         fct_for_y: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         df_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
+        df_du: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         df_dw: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         dg_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         dg_dv: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
@@ -81,6 +82,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         self.df_dx = df_dx
         self.df_dw = df_dw
+        self.df_du = df_du
         self.dg_dx = dg_dx
         self.dg_dv = dg_dv
 
@@ -106,6 +108,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         self.ran_checks_for_compute_state_derivative: bool = False
         self.ran_checks_for_compute_output: bool = False
         self.ran_checks_df_dx: bool = False
+        self.ran_checks_df_du: bool = False
         self.ran_checks_df_dw: bool = False
         self.ran_checks_dg_dx: bool = False
         self.ran_checks_dg_dv: bool = False
@@ -238,49 +241,61 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
     def compute_df_dx(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         x = self._check_valid_state(x)
-        if not self.ran_checks_for_df_dx:
+        if not self.ran_checks_df_dx:
             self._check_valid_input(u)
 
         df_dx = self.df_dx(t, x, u)
-        if not self.ran_checks_for_df_dx:
+        if not self.ran_checks_df_dx:
             self._check_valid_matrix(df_dx, self.nbr_states, self.nbr_states, "df_dx")
-            self.ran_checks_for_df_dx = True
+            self.ran_checks_df_dx = True
 
         return df_dx
 
+    def compute_df_du(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        x = self._check_valid_state(x)
+        if not self.ran_checks_df_du:
+            self._check_valid_input(u)
+
+        df_du = self.df_du(t, x, u)
+        if not self.ran_checks_df_du:
+            self._check_valid_matrix(df_du, self.nbr_states, self.nbr_inputs, "df_du")
+            self.ran_checks_df_du = True
+
+        return df_du
+
     def compute_df_dw(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         x = self._check_valid_state(x)
-        if not self.ran_checks_for_df_dw:
+        if not self.ran_checks_df_dw:
             self._check_valid_input(u)
 
         df_dw = self.df_dx(t, x, u)
-        if not self.ran_checks_for_df_dw:
+        if not self.ran_checks_df_dw:
             self._check_valid_matrix(df_dw, self.nbr_states, self.nbr_inputs, "df_dw")
-            self.ran_checks_for_df_dw = True
+            self.ran_checks_df_dw = True
 
         return df_dw
 
     def compute_dg_dx(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         x = self._check_valid_state(x)
-        if not self.ran_checks_for_dg_dx:
+        if not self.ran_checks_dg_dx:
             self._check_valid_input(u)
 
         dg_dx = self.df_dx(t, x, u)
-        if not self.ran_checks_for_dg_dx:
+        if not self.ran_checks_dg_dx:
             self._check_valid_matrix(dg_dx, self.nbr_states, self.nbr_states, "dg_dx")
-            self.ran_checks_for_dg_dx = True
+            self.ran_checks_dg_dx = True
 
         return dg_dx
 
     def compute_dg_dv(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         x = self._check_valid_state(x)
-        if not self.ran_checks_for_dg_dv:
+        if not self.ran_checks_dg_dv:
             self._check_valid_input(u)
 
         dg_dv = self.df_dx(t, x, u)
-        if not self.ran_checks_for_dg_dv:
+        if not self.ran_checks_dg_dv:
             self._check_valid_matrix(dg_dv, self.nbr_outputs, self.nbr_inputs, "dg_dv")
-            self.ran_checks_for_dg_dv = True
+            self.ran_checks_dg_dv = True
 
         return dg_dv
 
@@ -408,6 +423,44 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         return sol_t, sol_u, sol_x, sol_y
 
 
+def discretize_process_model_linearized_around_x(
+    pm2i: ProcessModelToIntegrate,
+    dt_data: float,
+    t: float,
+    x: np.ndarray,
+    u: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    A_c = pm2i.df_dx(t, x, u)
+    B_c = pm2i.df_du(t, x, u)
+    L_c = pm2i.df_dw(t, x, u)
+
+    Q_c = pm2i.E_w
+
+    xdim = pm2i.nbr_states
+    udim = pm2i.nbr_inputs
+
+    zero_state_state = np.zeros((xdim, xdim))
+    zero_state_input = np.zeros((xdim, udim))
+    zero_input_state = zero_state_input.T
+
+    Theta = np.block(
+        [
+            [A_c, L_c @ Q_c @ L_c.T, zero_state_state, zero_state_input],
+            [zero_state_state, -A_c.T, zero_state_state, zero_state_input],
+            [zero_state_state, zero_state_state, A_c, B_c],
+            [zero_input_state, zero_input_state, zero_input_state, zero_input_state],
+        ]
+    )
+
+    Psi = scipy.linalg.expm(Theta * dt_data)
+
+    A_d = Psi[0:xdim, 0:xdim]
+    B_d = Psi[2 * xdim : 3 * xdim, 3 * xdim : 3 * xdim + udim]
+    Q_d = Psi[0:xdim, xdim : 2 * xdim] @ A_d.T
+
+    return A_d, B_d, Q_d
+
+
 class ProcessModelGenerator:
     """Abstract class that represents a system's process model, and uses this
     specification to produce the object, an instance of
@@ -520,6 +573,30 @@ class ProcessModelGenerator:
     ) -> np.ndarray:
         """Derivate of the process vector function f (such that x_dot = f(x,u,w), with
         x the state, u the input and w the process noise) relative to the state vector.
+
+        Parameters
+        ----------
+        t : float
+            Time at which the derivative should be computed.
+        total_state : np.ndarray
+            The state around which the derivative should be computed at time `t`
+        total_input : np.ndarray
+            The input around which the derivative should be computed at time `t`
+
+        Returns
+        -------
+        np.ndarray
+            The derivative at time `t`
+
+        """
+
+        raise NotImplementedError("Derived class should override this method")
+
+    def compute_df_du(
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
+    ) -> np.ndarray:
+        """Derivate of the process vector function f (such that x_dot = f(x,u,w), with
+        x the state, u the input and w the process noise) relative to the input vector.
 
         Parameters
         ----------
