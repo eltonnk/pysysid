@@ -111,14 +111,20 @@ class MotorKalman(Motor):
     def __init__(self):
         pass
 
+    def extract_x(self, total_state: np.ndarray) -> np.ndarray:
+        return total_state[:3, :]
+
+    def extract_l(self, total_state: np.ndarray) -> np.ndarray:
+        return total_state[3:, 1]
+
     def compute_state_derivative(
         self,
         t: float,
         total_state: np.ndarray,
         total_input: np.ndarray,
     ):
-        x = total_state[:3, :]
-        l = total_state[3:, :]
+        x = self.extract_x(total_state)
+        l = self.extract_l(total_state)
 
         l21 = l[0]
         l22 = l[1]
@@ -139,6 +145,28 @@ class MotorKalman(Motor):
     def compute_output(
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
-        x = total_state[:3, :]
+        x = self.extract_x(total_state)
 
         return self._compute_C() @ x
+
+    def compute_df_dx(
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
+    ) -> np.ndarray:
+        x = self.extract_x(total_state)
+        l = self.extract_l(total_state)
+
+        l21 = l[0]
+        l22 = l[1]
+        l23 = l[2]
+
+        l31 = l[4]
+        l32 = l[5]
+        l33 = l[6]
+
+        return np.block(
+            [
+                [
+                    self._compute_A(l21, l22, l31, l32),
+                ]
+            ]
+        )
