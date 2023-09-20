@@ -268,7 +268,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         if not self.ran_checks_df_dw:
             self._check_valid_input(u)
 
-        df_dw = self.df_dx(t, x, u)
+        df_dw = self.df_dw(t, x, u)
         if not self.ran_checks_df_dw:
             self._check_valid_matrix(df_dw, self.nbr_states, self.nbr_inputs, "df_dw")
             self.ran_checks_df_dw = True
@@ -280,7 +280,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         if not self.ran_checks_dg_dx:
             self._check_valid_input(u)
 
-        dg_dx = self.df_dx(t, x, u)
+        dg_dx = self.dg_dx(t, x, u)
         if not self.ran_checks_dg_dx:
             self._check_valid_matrix(dg_dx, self.nbr_states, self.nbr_states, "dg_dx")
             self.ran_checks_dg_dx = True
@@ -292,7 +292,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         if not self.ran_checks_dg_dv:
             self._check_valid_input(u)
 
-        dg_dv = self.df_dx(t, x, u)
+        dg_dv = self.dg_dv(t, x, u)
         if not self.ran_checks_dg_dv:
             self._check_valid_matrix(dg_dv, self.nbr_outputs, self.nbr_inputs, "dg_dv")
             self.ran_checks_dg_dv = True
@@ -617,7 +617,7 @@ class ProcessModelGenerator:
         raise NotImplementedError("Derived class should override this method")
 
     def compute_df_dw(
-        self, total_state: np.ndarray, total_input: np.ndarray
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
         """Derivate of the process vector function f (such that x_dot = f(x,u,w), with
         x the state, u the input and w the process noise) relative to the process noise vector.
@@ -641,7 +641,7 @@ class ProcessModelGenerator:
         raise NotImplementedError("Derived class should override this method")
 
     def compute_dg_dx(
-        self, total_state: np.ndarray, total_input: np.ndarray
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
         """Derivate of the output vector function g (such that y = g(x,u,v), with
         x the state, u the input and v the measurment noise) relative to the state vector.
@@ -664,7 +664,7 @@ class ProcessModelGenerator:
         raise NotImplementedError("Derived class should override this method")
 
     def compute_dg_dv(
-        self, total_state: np.ndarray, total_input: np.ndarray
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
         """Derivate of the output vector function g (such that y = g(x,u,v), with
         x the state, u the input and v the measurment noise) relative to the measurement noise vector.
