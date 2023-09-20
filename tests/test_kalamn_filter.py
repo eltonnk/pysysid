@@ -42,10 +42,10 @@ class Motor(pm2i.ProcessModelGenerator):
         )
 
     def _compute_C(self):
-        return np.eye(3, 3)
+        return np.eye(3)
 
     def _compute_M(self):
-        return np.eye(3, 3)
+        return np.eye(3)
 
     def __init__(
         self, E_w: np.ndarray = None, E_v: np.ndarray = None, **kwargs: Dict[str, float]
@@ -99,12 +99,12 @@ class Motor(pm2i.ProcessModelGenerator):
         total_state: np.ndarray,
         total_input: np.ndarray,
     ) -> np.ndarray:
+        if self.E_w is None:
+            return self.mat_A @ total_state + self.mat_B @ total_input
+
         u = total_input[:2, :]
         w = total_input[2:, :]
-
-        x_dot = self.mat_A @ total_state + self.mat_B @ u + self.mat_L @ w
-
-        return x_dot
+        return self.mat_A @ total_state + self.mat_B @ u + self.mat_L @ w
 
     def compute_output(
         self,
@@ -112,6 +112,8 @@ class Motor(pm2i.ProcessModelGenerator):
         total_state: np.ndarray,
         total_input: np.ndarray,
     ) -> np.ndarray:
+        if self.E_v is None:
+            return self.mat_C @ total_state
         u = total_input[:2, :]
         v = total_input[2:, :]
         return self.mat_C @ total_state + self.mat_M @ v
@@ -126,6 +128,8 @@ class Motor(pm2i.ProcessModelGenerator):
             nbr_outputs=3,
             fct_for_x_dot=self.compute_state_derivative,
             fct_for_y=self.compute_output,
+            nbr_process_noise_inputs=2,
+            nbr_measurement_noise_inputs=3,
             E_w=self.E_w,
             E_v=self.E_v,
             rng=rng,
@@ -160,15 +164,15 @@ class MotorKalman(Motor):
         l22 = l[1]
         l23 = l[2]
 
-        l31 = l[4]
-        l32 = l[5]
-        l33 = l[6]
+        l31 = l[3]
+        l32 = l[4]
+        l33 = l[5]
 
         return np.vstack(
             (
                 self._compute_A(l21, l22, l31, l32) @ x
                 + self._compute_B(l23, l33) @ total_input,
-                np.zeros(6, 1),
+                np.zeros((6, 1)),
             )
         )
 
@@ -196,9 +200,9 @@ class MotorKalman(Motor):
         l22 = l[1]
         l23 = l[2]
 
-        l31 = l[4]
-        l32 = l[5]
-        l33 = l[6]
+        l31 = l[3]
+        l32 = l[4]
+        l33 = l[5]
 
         M_kal = np.array(
             [
@@ -211,7 +215,7 @@ class MotorKalman(Motor):
         return np.block(
             [
                 [self._compute_A(l21, l22, l31, l32), M_kal],
-                [np.zeros(6, 9)],
+                [np.zeros((6, 9))],
             ]
         )
 
@@ -224,10 +228,10 @@ class MotorKalman(Motor):
         l22 = l[1]
         l23 = l[2]
 
-        l31 = l[4]
-        l32 = l[5]
-        l33 = l[6]
-        return np.vstack((self._compute_B(l23, l33), np.zeros(6, 2)))
+        l31 = l[3]
+        l32 = l[4]
+        l33 = l[5]
+        return np.vstack((self._compute_B(l23, l33), np.zeros((6, 2))))
 
     def compute_df_dw(
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
@@ -237,7 +241,7 @@ class MotorKalman(Motor):
     def compute_dg_dx(
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
-        return np.hstack((self._compute_C(), np.zeros(3, 6)))
+        return np.hstack((self._compute_C(), np.zeros((3, 6))))
 
     def compute_dg_dv(
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
@@ -258,6 +262,8 @@ class MotorKalman(Motor):
             df_dw=self.compute_df_dw,
             dg_dx=self.compute_dg_dx,
             dg_dv=self.compute_dg_dv,
+            nbr_process_noise_inputs=2,
+            nbr_measurement_noise_inputs=3,
         )
 
 
@@ -281,10 +287,13 @@ if __name__ == "__main__":
         "K": 2.38e-2,
     }
 
-    E_w = 0.001 * np.eye(2)
-    E_v = 0.001 * np.eye(3)
+    E_w = 0.000001 * np.eye(2)
+    E_v = 0.000001 * np.eye(3)
 
-    x0 = None
+    x0 = np.array([0, 0, 0])
+    params_x0 = np.array([-1e4, -1e2, 1e-4, 1e5, -1e2, 1e7])
+
+    E_x_0_kal = 0.000001 * np.eye(9)
 
     v_sg = sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1)
 
@@ -335,8 +344,8 @@ if __name__ == "__main__":
 
     y = sol_y.T
 
-    A_con = np.hstack((np.zeros(6, 3), np.diag([-1, -1, 1, 1, -1, 1])))
-    b_con = np.zeros(6, 1)
+    A_con = np.hstack((np.zeros((6, 3)), np.diag([-1, -1, 1, 1, -1, 1])))
+    b_con = np.zeros((6, 1))
 
     cekf_regressor = kf.CEKF(
         process_model=MotorKalman,
@@ -345,19 +354,28 @@ if __name__ == "__main__":
         n_params=6,
     )
 
-    cekf_regressor.fit(X, y, x0=x0, E_x_0=E_w, E_w=E_w, E_v=E_v)
+    x0_kal = np.hstack((x0, params_x0))
+
+    cekf_regressor.fit(X, y, x0=x0_kal, E_x_0=E_x_0_kal, E_w=E_w, E_v=E_v)
 
     best_fit_params = cekf_regressor.optimal_parameters_
 
     if PLOTTING:
-        best_L = 1 / best_fit_params.l23
-        best_J = 1 / best_fit_params.l33
+        best_l21 = best_fit_params[0]
+        best_l22 = best_fit_params[1]
+        best_l23 = best_fit_params[2]
+        best_l31 = best_fit_params[3]
+        best_l32 = best_fit_params[4]
+        best_l33 = best_fit_params[5]
+
+        best_L = 1 / best_l23
+        best_J = 1 / best_l33
         best_cekf_motor_params = {
-            "R": -best_fit_params.l21 * best_L,
+            "R": -best_l21 * best_L,
             "L": best_L,
             "J": best_J,
-            "B": -best_fit_params.l32 * best_J,
-            "K": -best_fit_params.l22 * best_L,
+            "B": -best_l32 * best_J,
+            "K": -best_l33 * best_L,
         }
 
         print(f"{best_cekf_motor_params=}")
@@ -402,6 +420,8 @@ if __name__ == "__main__":
         ax[1][1].legend(loc="upper right")
 
         plt.show()
+
+    plt.show()
 
     original_params = np.array(
         [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]

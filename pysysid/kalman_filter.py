@@ -181,13 +181,16 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         x_hat_k_given_k: np.ndarray,
         u_k: np.ndarray,
     ):
-        phi_x_k, phi_w_k, E_w_d = pm2i.discretize_process_model_linearized_around_x(
-            self.pm2i_, dt_data, t, x_hat_k_given_k, u_k
+        # slight deviation from
+        # https://journals.sagepub.com/doi/full/10.1177/1475921720929434
+        # here, using van loan's method as shown in
+        # https://ieeexplore.ieee.org/document/1101743
+        # to discretize the linearized process model
+        phi_x_k, _, E_w_d = pm2i.discretize_process_model_linearized_around_x(
+            self.pm2i_, dt_data, t, x_hat_k_given_k, u_k, self.E_w_
         )
 
-        E_kp1_given_k = (
-            phi_x_k @ E_x_k_given_k @ phi_x_k.T + phi_w_k @ E_w_d @ phi_w_k.T
-        )
+        E_kp1_given_k = phi_x_k @ E_x_k_given_k @ phi_x_k.T + E_w_d
 
         return E_kp1_given_k
 
@@ -204,7 +207,6 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         )
 
         E_kp1_given_k = self._state_covariance_for_time_update(
-            self,
             E_x_k_given_k,
             dt_data,
             t,
@@ -226,11 +228,12 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # model derivates (ex. df_df, dg_dx, etc)
         # TODO: check that both constraint A and b are defined if one of the two
         # is defined
+        pmg = self.process_model()
         self.pm2i_: pm2i.ProcessModelToIntegrate = (
-            self.process_model.generate_process_model_to_integrate()
+            pmg.generate_process_model_to_integrate()
         )
         self.E_v_ = E_v
-        self.E_W_ = E_w
+        self.E_w_ = E_w
 
         X_t, X_u = util.split_time_input(X)
         dt_data = X_t[1] - X_t[0]
@@ -242,13 +245,22 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         del X_t, X_u
 
+        if x0 is None:
+            x0 = np.zeros((self.pm2i_.nbr_states, 1))
+        else:
+            if len(x0) != self.pm2i_.nbr_states:
+                raise ValueError(
+                    "x0 must have same number of values as the number of states in process_model"
+                )
+            x0 = x0.reshape((self.pm2i_.nbr_states, 1))
+
         x_hat_k_given_km1 = x0
         E_x_k_given_km1 = E_x_0
 
         for i, t in enumerate(T):
             print(f"Estimating state at timestep {t}...")
-            u_k = U[i, :]
-            y_k = Y[i, :]
+            u_k = U[:, i].reshape((self.pm2i_.nbr_inputs, 1))
+            y_k = Y[:, i].reshape((self.pm2i_.nbr_outputs, 1))
 
             x_hat_k_given_k, E_x_k_given_k = self._measurement_update(
                 y_k, t, x_hat_k_given_km1, u_k, E_x_k_given_km1

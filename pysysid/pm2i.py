@@ -30,6 +30,10 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
     fct_for_y : Callable[[float, np.ndarray, np.ndarray], np.ndarray]
         Computes the system's output at time t given the state and
         input at that same time.
+    nbr_process_noise_inputs: int, optional
+        Used to verify dimensions of E_w amd df_dw
+    nbr_measurement_noise_inputs: int, optional
+        Used to verify dimensions of E_v and dg_dv
     E_w : np.ndarrray, optional
         Square covariance matrix of the zero mean process noise.
         Process noise will be added when computing state derivatives with
@@ -66,6 +70,8 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         df_dw: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
         dg_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
         dg_dv: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
+        nbr_process_noise_inputs: int = 0,
+        nbr_measurement_noise_inputs: int = 0,
         E_w: np.ndarray = None,
         E_v: np.ndarray = None,
         rng: np.random.Generator = None,
@@ -86,19 +92,23 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         self.dg_dx = dg_dx
         self.dg_dv = dg_dv
 
+        self.nbr_process_noise_inputs = nbr_process_noise_inputs
+        self.nbr_measurement_noise_inputs = nbr_measurement_noise_inputs
+
+        self.E_w = None
         if E_w is not None:
-            (
-                self.E_w,
-                self.nbr_process_noise_inputs,
-            ) = self._sanity_check_covariance_matrix(E_w)
+            self.E_w = self._sanity_check_covariance_matrix(
+                E_w, self.nbr_process_noise_inputs
+            )
             self.mean_w = np.zeros((self.nbr_process_noise_inputs))
+        self.E_v = None
         if E_v is not None:
-            (
-                self.E_v,
-                self.nbr_measurement_noise_inputs,
-            ) = self._sanity_check_covariance_matrix(E_v)
+            self.E_v = self._sanity_check_covariance_matrix(
+                E_v, self.nbr_measurement_noise_inputs
+            )
             self.mean_v = np.zeros((self.nbr_measurement_noise_inputs))
 
+        self.rng = None
         if E_w is not None or E_v is not None:
             if rng:
                 self.rng = rng
@@ -113,24 +123,31 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         self.ran_checks_dg_dx: bool = False
         self.ran_checks_dg_dv: bool = False
 
-    def _sanity_check_covariance_matrix(self, cov_matrix: np.ndarray) -> np.ndarray:
+    def _sanity_check_covariance_matrix(
+        self, cov_matrix: np.ndarray, size: int
+    ) -> np.ndarray:
         shape = cov_matrix.shape
         dimension = len(shape)
         if dimension != 2:
             raise ValueError(
                 f"""Covariance matrix should be a 2-dimensional 
-                             array. Current dimension is {dimension}"""
+                array. Current dimension is {dimension}"""
             )
         rows = shape[0]
         cols = shape[1]
         if rows != cols:
             raise ValueError(
                 f"""Covariance matrix is not square. Number of 
-                             rows: {rows}. Number of columns: {cols}."""
+                rows: {rows}. Number of columns: {cols}."""
             )
 
-        nbr_noise_inputs = rows
-        return cov_matrix, nbr_noise_inputs
+        if size != rows:
+            raise ValueError(
+                f"""Covariance matrix size does not match dimension of noise input:
+                Matrix size: ({rows, cols}). Noise input size: ({size}, 1)."""
+            )
+
+        return cov_matrix
 
     def _check_valid_state(self, x: np.ndarray) -> np.ndarray:
         if x.shape[0] != self.nbr_states:
@@ -191,7 +208,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             self._check_valid_input(u)
 
         if self.E_w is not None:
-            process_noise = self.rng.multivariate_normal(self.mean_w, self.E_w)
+            process_noise = self._sample_process_noise(t)
             u = np.vstack((u, process_noise.reshape(self.nbr_process_noise_inputs, 1)))
 
         x_dot = self.fct_for_x_dot(t, x, u)
@@ -272,7 +289,9 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         df_dw = self.df_dw(t, x, u)
         if not self.ran_checks_df_dw:
-            self._check_valid_matrix(df_dw, self.nbr_states, self.nbr_inputs, "df_dw")
+            self._check_valid_matrix(
+                df_dw, self.nbr_states, self.nbr_process_noise_inputs, "df_dw"
+            )
             self.ran_checks_df_dw = True
 
         return df_dw
@@ -284,7 +303,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         dg_dx = self.dg_dx(t, x, u)
         if not self.ran_checks_dg_dx:
-            self._check_valid_matrix(dg_dx, self.nbr_states, self.nbr_states, "dg_dx")
+            self._check_valid_matrix(dg_dx, self.nbr_outputs, self.nbr_states, "dg_dx")
             self.ran_checks_dg_dx = True
 
         return dg_dx
@@ -296,7 +315,9 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         dg_dv = self.dg_dv(t, x, u)
         if not self.ran_checks_dg_dv:
-            self._check_valid_matrix(dg_dv, self.nbr_outputs, self.nbr_inputs, "dg_dv")
+            self._check_valid_matrix(
+                dg_dv, self.nbr_outputs, self.nbr_measurement_noise_inputs, "dg_dv"
+            )
             self.ran_checks_dg_dv = True
 
         return dg_dv
@@ -368,6 +389,24 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         return u_arr, y_arr
 
+    def _generate_sampled_process_noise(self, dt_data: float, t_arr: np.ndarray):
+        nbr_samples = len(t_arr)
+        self.process_noise_arr = self.rng.multivariate_normal(
+            self.mean_w, self.E_w, size=nbr_samples
+        )
+        self.process_noise_arr = self.process_noise_arr.T
+
+        def _sample_process_noise(t: float):
+            index = int(t / dt_data)
+            try:
+                process_noise = self.process_noise_arr[:, index]
+            except IndexError as e:
+                process_noise = self.process_noise_arr[:, -1]
+
+            return process_noise
+
+        self._sample_process_noise = _sample_process_noise
+
     def integrate(
         self,
         compute_u_from_t: Callable[[float], np.ndarray],
@@ -396,12 +435,16 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
             Time, input, state and output timeseries produced by the simulation
         """
+        t = np.arange(t_start, t_end, dt_data)
+
+        if self.rng:
+            self._generate_sampled_process_noise(dt_data, t)
+
         fction_to_integrate = self.generate_fction_to_integrate(compute_u_from_t)
 
         if x0 is None:
             x0 = np.zeros((self.nbr_states, 1)).ravel()
 
-        t = np.arange(t_start, t_end, dt_data)
         # Find time-domain response by integrating the ODE
         sol = scipy.integrate.solve_ivp(
             fun=fction_to_integrate,
@@ -431,12 +474,13 @@ def discretize_process_model_linearized_around_x(
     t: float,
     x: np.ndarray,
     u: np.ndarray,
+    E_w_c: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     A_c = pm2i.df_dx(t, x, u)
     B_c = pm2i.df_du(t, x, u)
     L_c = pm2i.df_dw(t, x, u)
 
-    Q_c = pm2i.E_w
+    Q_c = E_w_c
 
     xdim = pm2i.nbr_states
     udim = pm2i.nbr_inputs
@@ -444,13 +488,14 @@ def discretize_process_model_linearized_around_x(
     zero_state_state = np.zeros((xdim, xdim))
     zero_state_input = np.zeros((xdim, udim))
     zero_input_state = zero_state_input.T
+    zero_input_input = np.zeros((udim, udim))
 
     Theta = np.block(
         [
             [A_c, L_c @ Q_c @ L_c.T, zero_state_state, zero_state_input],
             [zero_state_state, -A_c.T, zero_state_state, zero_state_input],
             [zero_state_state, zero_state_state, A_c, B_c],
-            [zero_input_state, zero_input_state, zero_input_state, zero_input_state],
+            [zero_input_state, zero_input_state, zero_input_state, zero_input_input],
         ]
     )
 
