@@ -1,8 +1,12 @@
 from typing import Dict
 
+import matplotlib.pyplot as plt
 import numpy as np
+from numpy.random import default_rng
 
+import pysysid.kalman_filter as kf
 import pysysid.pm2i as pm2i
+import pysysid.signal_generators as sg
 
 
 class Motor(pm2i.ProcessModelGenerator):
@@ -69,14 +73,22 @@ class Motor(pm2i.ProcessModelGenerator):
         # tau_d
         # ]
 
+        self.l21 = -self.R / self.L
+        self.l22 = -self.K / self.L
+        self.l23 = 1 / self.L
+
+        self.l31 = self.K / self.J
+        self.l32 = -self.B / self.J
+        self.l33 = 1 / self.J
+
         self.mat_A = self._compute_A(
-            l21=-self.R / self.L,
-            l22=-self.self.K / self.L,
-            l31=self.K / self.J,
-            l32=-self.B / self.J,
+            l21=self.l21,
+            l22=self.l22,
+            l31=self.l31,
+            l32=self.l32,
         )
 
-        self.mat_B = self._compute_B(l23=1 / self.L, l33=1 / self.J)
+        self.mat_B = self._compute_B(l23=self.l23, l33=self.l33)
         self.mat_L = self.mat_B
         self.mat_C = self._compute_C()
         self.mat_M = self._compute_M()
@@ -104,13 +116,19 @@ class Motor(pm2i.ProcessModelGenerator):
         v = total_input[2:, :]
         return self.mat_C @ total_state + self.mat_M @ v
 
-    def generate_process_model_to_integrate(self) -> pm2i.ProcessModelToIntegrate:
+    def generate_process_model_to_integrate(
+        self,
+        rng: np.random.Generator = None,
+    ) -> pm2i.ProcessModelToIntegrate:
         return pm2i.ProcessModelToIntegrate(
             nbr_states=3,
             nbr_inputs=2,
             nbr_outputs=3,
             fct_for_x_dot=self.compute_state_derivative,
             fct_for_y=self.compute_output,
+            E_w=self.E_w,
+            E_v=self.E_v,
+            rng=rng,
         )
 
 
@@ -183,11 +201,18 @@ class MotorKalman(Motor):
         l33 = l[6]
 
         M_kal = np.array(
-            [[0, 0, 0, 0, 0, 0], [i, omega, v, 0, 0, 0], [0, 0, 0, i, omega, tau_d]]
+            [
+                [0, 0, 0, 0, 0, 0],
+                [i, omega, v, 0, 0, 0],
+                [0, 0, 0, i, omega, tau_d],
+            ]
         )
 
         return np.block(
-            [[self._compute_A(l21, l22, l31, l32), M_kal], [np.zeros(6, 9)]]
+            [
+                [self._compute_A(l21, l22, l31, l32), M_kal],
+                [np.zeros(6, 9)],
+            ]
         )
 
     def compute_df_du(
@@ -218,3 +243,166 @@ class MotorKalman(Motor):
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
         return self._compute_M()
+
+    def generate_process_model_to_integrate(
+        self,
+    ) -> pm2i.ProcessModelToIntegrate:
+        return pm2i.ProcessModelToIntegrate(
+            nbr_states=9,  # 3 states + 6 parameters evaluated as states
+            nbr_inputs=2,
+            nbr_outputs=3,
+            fct_for_x_dot=self.compute_state_derivative,
+            fct_for_y=self.compute_output,
+            df_dx=self.compute_df_dx,
+            df_du=self.compute_df_du,
+            df_dw=self.compute_df_dw,
+            dg_dx=self.compute_dg_dx,
+            dg_dv=self.compute_dg_dv,
+        )
+
+
+class TestCEKF:
+    """Used to test the CEKF class from kalman_filter.py."""
+
+    def test_fit(self):
+        """Used to test the fit method from the CEKf class."""
+
+        assert True
+
+
+if __name__ == "__main__":
+    PLOTTING = True
+
+    motor_params = {
+        "R": 1.0,
+        "L": 6e-4,
+        "J": 8e-7,
+        "B": 1.33e-5,
+        "K": 2.38e-2,
+    }
+
+    E_w = 0.001 * np.eye(2)
+    E_v = 0.001 * np.eye(3)
+
+    x0 = None
+
+    v_sg = sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1)
+
+    tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0)
+
+    input_gen = sg.InputGenerator([v_sg, tau_d_sg])
+
+    motor = Motor(E_w=E_w, E_v=E_v, **motor_params)
+
+    rng = default_rng(seed=1)
+
+    motor_pm2i = motor.generate_process_model_to_integrate(rng)
+
+    sol_t, sol_u, _, sol_y = motor_pm2i.integrate(
+        compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
+    )
+
+    if PLOTTING:
+        fig, ax = plt.subplots(2, 2)
+
+        v = sol_u[0, :]
+        tau_d = sol_u[1, :]
+
+        theta = sol_y[0, :]
+        omega = sol_y[2, :]
+
+        ax[0][0].set_xlabel(r"$t$ (s)")
+        ax[0][0].set_ylabel(r"$v(t)$ (V)")
+        ax[0][0].plot(sol_t, v, label=r"Voltage Input", color="C0")
+        ax[0][0].legend(loc="upper right")
+
+        ax[1][0].set_xlabel(r"$t$ (s)")
+        ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
+        ax[1][0].plot(sol_t, tau_d, label=r"Torque Disturbance", color="C0")
+        ax[1][0].legend(loc="upper right")
+
+        ax[0][1].set_xlabel(r"$t$ (s)")
+        ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
+        ax[0][1].plot(sol_t, theta, label=r"Angular Position", color="C0")
+        ax[0][1].legend(loc="upper right")
+
+        ax[1][1].set_xlabel(r"$t$ (s)")
+        ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+        ax[1][1].plot(sol_t, omega, label=r"Angular Velocity", color="C0")
+        ax[1][1].legend(loc="upper right")
+
+    X = np.block([[sol_t.reshape(1, len(sol_t)).T, sol_u.T]])
+
+    y = sol_y.T
+
+    A_con = np.hstack((np.zeros(6, 3), np.diag([-1, -1, 1, 1, -1, 1])))
+    b_con = np.zeros(6, 1)
+
+    cekf_regressor = kf.CEKF(
+        process_model=MotorKalman,
+        physical_constraint_matrix_A=A_con,
+        physical_constraint_vector_b=b_con,
+        n_params=6,
+    )
+
+    cekf_regressor.fit(X, y, x0=x0, E_x_0=E_w, E_w=E_w, E_v=E_v)
+
+    best_fit_params = cekf_regressor.optimal_parameters_
+
+    if PLOTTING:
+        best_L = 1 / best_fit_params.l23
+        best_J = 1 / best_fit_params.l33
+        best_cekf_motor_params = {
+            "R": -best_fit_params.l21 * best_L,
+            "L": best_L,
+            "J": best_J,
+            "B": -best_fit_params.l32 * best_J,
+            "K": -best_fit_params.l22 * best_L,
+        }
+
+        print(f"{best_cekf_motor_params=}")
+
+        motor_fit = Motor(**best_cekf_motor_params)
+        motor_pm2i_fit = motor_fit.generate_process_model_to_integrate()
+
+        sol_t_fit, sol_u_fit, _, sol_y_fit = motor_pm2i_fit.integrate(
+            compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
+        )
+
+        v_fit = sol_u_fit[0, :]
+        tau_d_fit = sol_u_fit[1, :]
+
+        theta_fit = sol_y_fit[0, :]
+        omega_fit = sol_y_fit[2, :]
+
+        ax[0][0].set_xlabel(r"$t$ (s)")
+        ax[0][0].set_ylabel(r"$v(t)$ (V)")
+        ax[0][0].plot(sol_t_fit, v_fit, label=r"Voltage Input - Best Fit", color="C1")
+        ax[0][0].legend(loc="upper right")
+
+        ax[1][0].set_xlabel(r"$t$ (s)")
+        ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
+        ax[1][0].plot(
+            sol_t_fit, tau_d_fit, label=r"Torque Disturbance - Best Fit", color="C1"
+        )
+        ax[1][0].legend(loc="upper right")
+
+        ax[0][1].set_xlabel(r"$t$ (s)")
+        ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
+        ax[0][1].plot(
+            sol_t_fit, theta_fit, label=r"Angular Position  - Best Fit", color="C1"
+        )
+        ax[0][1].legend(loc="upper right")
+
+        ax[1][1].set_xlabel(r"$t$ (s)")
+        ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+        ax[1][1].plot(
+            sol_t_fit, omega_fit, label=r"Angular Velocity  - Best Fit", color="C1"
+        )
+        ax[1][1].legend(loc="upper right")
+
+        plt.show()
+
+    original_params = np.array(
+        [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
+    )

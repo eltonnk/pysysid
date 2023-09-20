@@ -1,11 +1,10 @@
 """Constrained Extended Kalamn Filter (CEKF) system identification methods."""
 
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Tuple
 
 import numpy as np
 import sklearn.base
-from numpy.random import default_rng
 
 from . import pm2i, util
 
@@ -223,7 +222,8 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         E_w: np.ndarray = None,
         E_v: np.ndarray = None,
     ) -> "CEKF":
-        # TODO: check that process model has noise matrices
+        # TODO: check that process model includes process model and measurement
+        # model derivates (ex. df_df, dg_dx, etc)
         # TODO: check that both constraint A and b are defined if one of the two
         # is defined
         self.pm2i_: pm2i.ProcessModelToIntegrate = (
@@ -246,6 +246,7 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         E_x_k_given_km1 = E_x_0
 
         for i, t in enumerate(T):
+            print(f"Estimating state at timestep {t}...")
             u_k = U[i, :]
             y_k = Y[i, :]
 
@@ -260,4 +261,4 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             x_hat_k_given_km1 = x_hat_kp1_given_k
             E_x_k_given_km1 = E_kp1_given_k
 
-        self.optimal_parameters_ = x_hat_k_given_km1[-self.n_params :, :]
+        self.optimal_parameters_ = x_hat_k_given_km1[-self.n_params :, 0]

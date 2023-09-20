@@ -185,11 +185,11 @@ class TestGenetic:
 
         genetic_algo_regressor.fit(X, y, n_iter=50, x0=x0)
 
-        best_chromosome = genetic_algo_regressor._elite_chromosome
+        best_fit_params = genetic_algo_regressor._elite_chromosome
 
         if PLOTTING:
             best_chromosome_motor_params = genetic_algo_regressor._gen_chromosome_dict(
-                best_chromosome
+                best_fit_params
             )
 
             print(f"{best_chromosome_motor_params=}")
@@ -239,4 +239,4 @@ class TestGenetic:
 
         original_params = np.array(list(motor_params.values()))
 
-        np.testing.assert_allclose(best_chromosome, original_params, rtol=0, atol=0.02)
+        np.testing.assert_allclose(best_fit_params, original_params, rtol=0, atol=0.02)

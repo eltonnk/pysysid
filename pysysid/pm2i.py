@@ -61,14 +61,14 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         nbr_outputs: int,
         fct_for_x_dot: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
         fct_for_y: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
-        df_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
-        df_du: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
-        df_dw: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
-        dg_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
-        dg_dv: Callable[[float, np.ndarray, np.ndarray], np.ndarray],
+        df_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
+        df_du: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
+        df_dw: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
+        dg_dx: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
+        dg_dv: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = None,
         E_w: np.ndarray = None,
         E_v: np.ndarray = None,
-        rng: np.random.Genator = None,
+        rng: np.random.Generator = None,
     ):
         self.nbr_states: int = nbr_states
         self.nbr_inputs: int = nbr_inputs
@@ -97,7 +97,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
                 self.E_v,
                 self.nbr_measurement_noise_inputs,
             ) = self._sanity_check_covariance_matrix(E_v)
-            self.mean_w = np.zeros((self.nbr_measurement_noise_inputs))
+            self.mean_v = np.zeros((self.nbr_measurement_noise_inputs))
 
         if E_w is not None or E_v is not None:
             if rng:
@@ -192,7 +192,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         if self.E_w is not None:
             process_noise = self.rng.multivariate_normal(self.mean_w, self.E_w)
-            u = np.vstack((u, process_noise))
+            u = np.vstack((u, process_noise.reshape(self.nbr_process_noise_inputs, 1)))
 
         x_dot = self.fct_for_x_dot(t, x, u)
 
@@ -231,7 +231,9 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         if self.E_v is not None:
             measurement_noise = self.rng.multivariate_normal(self.mean_v, self.E_v)
-            u = np.vstack((u, measurement_noise))
+            u = np.vstack(
+                (u, measurement_noise.reshape(self.nbr_measurement_noise_inputs, 1))
+            )
 
         y = self.fct_for_y(t, x, u)
         if not self.ran_checks_for_compute_output:
@@ -553,10 +555,21 @@ class ProcessModelGenerator:
 
     def generate_process_model_to_integrate(
         self,
+        rng: np.random.Generator = None,
     ) -> ProcessModelToIntegrate:
         """This method should pass the `compute_state_derivative` and
         `compute_output` methods to the `ProcessModelToIntegrate` constructor,
         as well as the appropriate input, output and state dimensions.
+
+        Parameters
+        ----------
+        rng : np.random.Generator
+            Random number generator. Should be provided when E_v or E_w is not None,
+            to generate the process and measurements noises. If not provided,
+            this class will create its own random number generator. This makes it so
+            the user can't provide a seed to the random number generator and thus
+            the results when integrating states and outputs will not be repeatable.
+
 
         Returns
         -------
