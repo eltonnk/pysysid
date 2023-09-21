@@ -287,13 +287,13 @@ if __name__ == "__main__":
         "K": 2.38e-2,
     }
 
-    E_w = 0.000001 * np.eye(2)
-    E_v = 0.000001 * np.eye(3)
+    E_w = np.diag([1e-4, 1e-7])
+    E_v = 1e-4 * np.eye(3)
 
     x0 = np.array([0, 0, 0])
-    params_x0 = np.array([-1e4, -1e2, 1e-4, 1e5, -1e2, 1e7])
+    params_x0 = np.array([-1e4, -1e2, 1e4, 1e5, -1e2, 1e7])
 
-    E_x_0_kal = 0.000001 * np.eye(9)
+    E_x_0_kal = 0.0001 * np.eye(9)
 
     v_sg = sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1)
 
@@ -302,6 +302,13 @@ if __name__ == "__main__":
     input_gen = sg.InputGenerator([v_sg, tau_d_sg])
 
     motor = Motor(E_w=E_w, E_v=E_v, **motor_params)
+
+    original_params = np.array(
+        [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
+    )
+
+    print(f"Original params: {original_params}")
+    print(f"Init params CEKF: {params_x0}")
 
     rng = default_rng(seed=1)
 
@@ -361,6 +368,22 @@ if __name__ == "__main__":
     best_fit_params = cekf_regressor.optimal_parameters_
 
     if PLOTTING:
+        sol_x_kal = cekf_regressor.x_arr_
+
+        theta_kal = sol_x_kal[0, :]
+        omega_kal = sol_x_kal[2, :]
+
+        ax[0][1].set_xlabel(r"$t$ (s)")
+        ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
+        ax[0][1].plot(sol_t, theta_kal, label=r"Estimated Angular Position", color="C2")
+        ax[0][1].legend(loc="upper right")
+
+        ax[1][1].set_xlabel(r"$t$ (s)")
+        ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+        ax[1][1].plot(sol_t, omega_kal, label=r"Estimated Angular Velocity", color="C2")
+        ax[1][1].legend(loc="upper right")
+
+    if PLOTTING:
         best_l21 = best_fit_params[0]
         best_l22 = best_fit_params[1]
         best_l23 = best_fit_params[2]
@@ -375,7 +398,7 @@ if __name__ == "__main__":
             "L": best_L,
             "J": best_J,
             "B": -best_l32 * best_J,
-            "K": -best_l33 * best_L,
+            "K": -best_l22 * best_L,
         }
 
         print(f"{best_cekf_motor_params=}")
@@ -420,9 +443,3 @@ if __name__ == "__main__":
         ax[1][1].legend(loc="upper right")
 
         plt.show()
-
-    plt.show()
-
-    original_params = np.array(
-        [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
-    )
