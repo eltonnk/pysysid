@@ -490,14 +490,20 @@ def discretize_process_model_linearized_around_x(
     zero_input_state = zero_state_input.T
     zero_input_input = np.zeros((udim, udim))
 
+    LQLT = L_c @ Q_c @ L_c.T
+
     Theta = np.block(
         [
-            [A_c, L_c @ Q_c @ L_c.T, zero_state_state, zero_state_input],
+            [A_c, LQLT, zero_state_state, zero_state_input],
             [zero_state_state, -A_c.T, zero_state_state, zero_state_input],
             [zero_state_state, zero_state_state, A_c, B_c],
             [zero_input_state, zero_input_state, zero_input_state, zero_input_input],
         ]
     )
+
+    condTheta = np.linalg.cond(Theta)
+    normTheta = np.linalg.norm(Theta)
+    # normInvTheta = np.linalg.norm(np.linalg.inv(Theta)) # inverse of A doesn't exist
 
     Psi = scipy.linalg.expm(Theta * dt_data)
 

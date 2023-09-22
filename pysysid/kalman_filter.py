@@ -105,9 +105,12 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             return L_k, x_hat_k_given_k
 
         index_active_constraints = np.logical_not(index_inactive_constraints)
+        index_active_constraints = index_active_constraints.reshape(
+            (index_active_constraints.shape[0])
+        )
 
         A_a = self.physical_constraint_matrix_A[index_active_constraints, :]
-        b_a = self.physical_constraint_matrix_A[index_active_constraints, :]
+        b_a = self.physical_constraint_vector_b[index_active_constraints, :]
 
         A_a_T = A_a.T
 
@@ -264,13 +267,13 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             u_k = U[:, i].reshape((self.pm2i_.nbr_inputs, 1))
             y_k = Y[:, i].reshape((self.pm2i_.nbr_outputs, 1))
 
-            x_hat_k_given_k, E_x_k_given_k = self._measurement_update(
-                y_k, t, x_hat_k_given_km1, u_k, E_x_k_given_km1
+            x_hat_k_given_k, E_x_k_given_k = self._time_update(
+                t, x_hat_k_given_km1, u_k, E_x_k_given_km1, dt_data
+            )
+            x_hat_kp1_given_k, E_kp1_given_k = self._measurement_update(
+                y_k, t, x_hat_k_given_k, u_k, E_x_k_given_k
             )
 
-            x_hat_kp1_given_k, E_kp1_given_k = self._time_update(
-                t, x_hat_k_given_k, u_k, E_x_k_given_k, dt_data
-            )
             self.x_arr_[:, i] = x_hat_kp1_given_k.reshape((self.pm2i_.nbr_states,))
 
             x_hat_k_given_km1 = x_hat_kp1_given_k

@@ -42,10 +42,10 @@ class Motor(pm2i.ProcessModelGenerator):
         )
 
     def _compute_C(self):
-        return np.eye(3)
+        return np.array([[1, 0, 0], [0, 1, 0]])
 
     def _compute_M(self):
-        return np.eye(3)
+        return np.eye(2)
 
     def __init__(
         self, E_w: np.ndarray = None, E_v: np.ndarray = None, **kwargs: Dict[str, float]
@@ -125,11 +125,11 @@ class Motor(pm2i.ProcessModelGenerator):
         return pm2i.ProcessModelToIntegrate(
             nbr_states=3,
             nbr_inputs=2,
-            nbr_outputs=3,
+            nbr_outputs=2,
             fct_for_x_dot=self.compute_state_derivative,
             fct_for_y=self.compute_output,
             nbr_process_noise_inputs=2,
-            nbr_measurement_noise_inputs=3,
+            nbr_measurement_noise_inputs=2,
             E_w=self.E_w,
             E_v=self.E_v,
             rng=rng,
@@ -241,7 +241,7 @@ class MotorKalman(Motor):
     def compute_dg_dx(
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
-        return np.hstack((self._compute_C(), np.zeros((3, 6))))
+        return np.hstack((self._compute_C(), np.zeros((2, 6))))
 
     def compute_dg_dv(
         self, t: float, total_state: np.ndarray, total_input: np.ndarray
@@ -254,7 +254,7 @@ class MotorKalman(Motor):
         return pm2i.ProcessModelToIntegrate(
             nbr_states=9,  # 3 states + 6 parameters evaluated as states
             nbr_inputs=2,
-            nbr_outputs=3,
+            nbr_outputs=2,
             fct_for_x_dot=self.compute_state_derivative,
             fct_for_y=self.compute_output,
             df_dx=self.compute_df_dx,
@@ -263,7 +263,7 @@ class MotorKalman(Motor):
             dg_dx=self.compute_dg_dx,
             dg_dv=self.compute_dg_dv,
             nbr_process_noise_inputs=2,
-            nbr_measurement_noise_inputs=3,
+            nbr_measurement_noise_inputs=2,
         )
 
 
@@ -287,8 +287,8 @@ if __name__ == "__main__":
         "K": 2.38e-2,
     }
 
-    E_w = np.diag([1e-4, 1e-7])
-    E_v = 1e-4 * np.eye(3)
+    E_w = np.diag([1e-12, 1e-12])
+    E_v = np.diag([1e-7, 1e-12])
 
     x0 = np.array([0, 0, 0])
     params_x0 = np.array([-1e4, -1e2, 1e4, 1e5, -1e2, 1e7])
@@ -297,7 +297,7 @@ if __name__ == "__main__":
 
     v_sg = sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1)
 
-    tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0)
+    tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.0, phase=0)
 
     input_gen = sg.InputGenerator([v_sg, tau_d_sg])
 
@@ -314,18 +314,19 @@ if __name__ == "__main__":
 
     motor_pm2i = motor.generate_process_model_to_integrate(rng)
 
-    sol_t, sol_u, _, sol_y = motor_pm2i.integrate(
+    sol_t, sol_u, sol_x, sol_y = motor_pm2i.integrate(
         compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
     )
 
     if PLOTTING:
-        fig, ax = plt.subplots(2, 2)
+        fig, ax = plt.subplots(3, 2)
 
         v = sol_u[0, :]
         tau_d = sol_u[1, :]
 
         theta = sol_y[0, :]
-        omega = sol_y[2, :]
+        i = sol_y[1, :]
+        omega = sol_x[2, :]
 
         ax[0][0].set_xlabel(r"$t$ (s)")
         ax[0][0].set_ylabel(r"$v(t)$ (V)")
@@ -343,9 +344,16 @@ if __name__ == "__main__":
         ax[0][1].legend(loc="upper right")
 
         ax[1][1].set_xlabel(r"$t$ (s)")
-        ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
-        ax[1][1].plot(sol_t, omega, label=r"Angular Velocity", color="C0")
+        ax[1][1].set_ylabel(r"$i(t)$ (rad/s)")
+        ax[1][1].plot(sol_t, i, label=r"Current", color="C0")
         ax[1][1].legend(loc="upper right")
+
+        ax[2][1].set_xlabel(r"$t$ (s)")
+        ax[2][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+        ax[2][1].plot(sol_t, omega, label=r"Angular Velocity", color="C0")
+        ax[2][1].legend(loc="upper right")
+
+        plt.show()
 
     X = np.block([[sol_t.reshape(1, len(sol_t)).T, sol_u.T]])
 
@@ -371,6 +379,7 @@ if __name__ == "__main__":
         sol_x_kal = cekf_regressor.x_arr_
 
         theta_kal = sol_x_kal[0, :]
+        i_kal = sol_x_kal[1, :]
         omega_kal = sol_x_kal[2, :]
 
         ax[0][1].set_xlabel(r"$t$ (s)")
@@ -379,9 +388,14 @@ if __name__ == "__main__":
         ax[0][1].legend(loc="upper right")
 
         ax[1][1].set_xlabel(r"$t$ (s)")
-        ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
-        ax[1][1].plot(sol_t, omega_kal, label=r"Estimated Angular Velocity", color="C2")
+        ax[1][1].set_ylabel(r"$i(t)$ (rad/s)")
+        ax[1][1].plot(sol_t, i_kal, label=r"Estimated Current", color="C2")
         ax[1][1].legend(loc="upper right")
+
+        ax[2][1].set_xlabel(r"$t$ (s)")
+        ax[2][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+        ax[2][1].plot(sol_t, omega_kal, label=r"Estimated Angular Velocity", color="C2")
+        ax[2][1].legend(loc="upper right")
 
     if PLOTTING:
         best_l21 = best_fit_params[0]
@@ -406,7 +420,7 @@ if __name__ == "__main__":
         motor_fit = Motor(**best_cekf_motor_params)
         motor_pm2i_fit = motor_fit.generate_process_model_to_integrate()
 
-        sol_t_fit, sol_u_fit, _, sol_y_fit = motor_pm2i_fit.integrate(
+        sol_t_fit, sol_u_fit, sol_x_fit, sol_y_fit = motor_pm2i_fit.integrate(
             compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
         )
 
@@ -414,19 +428,8 @@ if __name__ == "__main__":
         tau_d_fit = sol_u_fit[1, :]
 
         theta_fit = sol_y_fit[0, :]
-        omega_fit = sol_y_fit[2, :]
-
-        ax[0][0].set_xlabel(r"$t$ (s)")
-        ax[0][0].set_ylabel(r"$v(t)$ (V)")
-        ax[0][0].plot(sol_t_fit, v_fit, label=r"Voltage Input - Best Fit", color="C1")
-        ax[0][0].legend(loc="upper right")
-
-        ax[1][0].set_xlabel(r"$t$ (s)")
-        ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
-        ax[1][0].plot(
-            sol_t_fit, tau_d_fit, label=r"Torque Disturbance - Best Fit", color="C1"
-        )
-        ax[1][0].legend(loc="upper right")
+        i_fit = sol_y_fit[1, :]
+        omega_fit = sol_x_fit[2, :]
 
         ax[0][1].set_xlabel(r"$t$ (s)")
         ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
@@ -434,6 +437,11 @@ if __name__ == "__main__":
             sol_t_fit, theta_fit, label=r"Angular Position  - Best Fit", color="C1"
         )
         ax[0][1].legend(loc="upper right")
+
+        ax[1][1].set_xlabel(r"$t$ (s)")
+        ax[1][1].set_ylabel(r"$i(t)$ (rad/s)")
+        ax[1][1].plot(sol_t, i_fit, label=r"Current - Best Fit", color="C1")
+        ax[1][1].legend(loc="upper right")
 
         ax[1][1].set_xlabel(r"$t$ (s)")
         ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
