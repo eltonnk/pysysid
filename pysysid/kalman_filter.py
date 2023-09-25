@@ -116,7 +116,7 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         temp1 = np.linalg.solve(E_y_k.T, r_k).T
 
-        temp2 = np.linalg.solve(A_a @ A_a_T, A_a @ x_hat_k_given_km1 - b_a)
+        temp2 = np.linalg.solve(A_a @ A_a_T, A_a @ x_tilde_k_given_k - b_a)
 
         L_k = L_tilde_k - (1 / temp1 @ r_k) * A_a_T @ temp2 @ temp1
 

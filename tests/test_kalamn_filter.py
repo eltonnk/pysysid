@@ -1,5 +1,6 @@
 from typing import Dict
 
+import control
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.random import default_rng
@@ -92,6 +93,7 @@ class Motor(pm2i.ProcessModelGenerator):
         self.mat_L = self.mat_B
         self.mat_C = self._compute_C()
         self.mat_M = self._compute_M()
+        self.mat_D = np.zeros((2, 2))
 
     def compute_state_derivative(
         self,
@@ -189,12 +191,12 @@ class MotorKalman(Motor):
         x = self.extract_x(total_state)
         l = self.extract_l(total_state)
 
-        theta = total_state[0, 0]
-        i = total_state[1, 0]
-        omega = total_state[2, 0]
+        theta = x[0, 0]
+        i = x[1, 0]
+        omega = x[2, 0]
 
         v = total_input[0, 0]
-        tau_d = total_state[1, 0]
+        tau_d = total_input[1, 0]
 
         l21 = l[0]
         l22 = l[1]
@@ -267,6 +269,27 @@ class MotorKalman(Motor):
         )
 
 
+def retrieve_params(l: np.ndarray) -> Dict[str, float]:
+    l21 = l[0]
+    l22 = l[1]
+    l23 = l[2]
+    l31 = l[3]
+    l32 = l[4]
+    l33 = l[5]
+
+    L = 1 / l23
+    J = 1 / l33
+    params = {
+        "R": -l21 * L,
+        "L": L,
+        "J": J,
+        "B": -l32 * J,
+        "K": -l22 * L,
+    }
+
+    return params
+
+
 class TestCEKF:
     """Used to test the CEKF class from kalman_filter.py."""
 
@@ -287,8 +310,8 @@ if __name__ == "__main__":
         "K": 2.38e-2,
     }
 
-    E_w = np.diag([1e-12, 1e-12])
-    E_v = np.diag([1e-7, 1e-12])
+    E_w = np.diag([1e-5, 1e-9])
+    E_v = np.diag([1e-12, 1e-9])
 
     x0 = np.array([0, 0, 0])
     params_x0 = np.array([-1e4, -1e2, 1e4, 1e5, -1e2, 1e7])
@@ -297,7 +320,7 @@ if __name__ == "__main__":
 
     v_sg = sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1)
 
-    tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.0, phase=0)
+    tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0)
 
     input_gen = sg.InputGenerator([v_sg, tau_d_sg])
 
@@ -306,6 +329,16 @@ if __name__ == "__main__":
     original_params = np.array(
         [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
     )
+
+    # motor_ss = control.StateSpace(motor.mat_A, motor.mat_B, motor.mat_C, motor.mat_D)
+    # motor_poles = control.pole(motor_ss)
+
+    # init_params = retrieve_params(params_x0)
+    # motor_init = Motor(**init_params)
+    # init_motor_ss = control.StateSpace(
+    #     motor_init.mat_A, motor_init.mat_B, motor_init.mat_C, motor_init.mat_D
+    # )
+    # init_motor_poles = control.pole(init_motor_ss)
 
     print(f"Original params: {original_params}")
     print(f"Init params CEKF: {params_x0}")
@@ -398,22 +431,7 @@ if __name__ == "__main__":
         ax[2][1].legend(loc="upper right")
 
     if PLOTTING:
-        best_l21 = best_fit_params[0]
-        best_l22 = best_fit_params[1]
-        best_l23 = best_fit_params[2]
-        best_l31 = best_fit_params[3]
-        best_l32 = best_fit_params[4]
-        best_l33 = best_fit_params[5]
-
-        best_L = 1 / best_l23
-        best_J = 1 / best_l33
-        best_cekf_motor_params = {
-            "R": -best_l21 * best_L,
-            "L": best_L,
-            "J": best_J,
-            "B": -best_l32 * best_J,
-            "K": -best_l22 * best_L,
-        }
+        best_cekf_motor_params = retrieve_params(best_fit_params)
 
         print(f"{best_cekf_motor_params=}")
 
