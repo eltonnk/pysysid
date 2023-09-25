@@ -261,9 +261,11 @@ class CEKF(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         E_x_k_given_km1 = E_x_0
 
         self.x_arr_ = np.zeros(((self.pm2i_.nbr_states, len(T))))
-
+        last_print_at = 0.0
         for i, t in enumerate(T):
-            print(f"Estimating state at timestep {t}...")
+            if t - last_print_at >= 1:
+                print(f"Estimating state at timestep {t}...")
+                last_print_at = t
             u_k = U[:, i].reshape((self.pm2i_.nbr_inputs, 1))
             y_k = Y[:, i].reshape((self.pm2i_.nbr_outputs, 1))
 

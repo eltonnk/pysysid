@@ -80,3 +80,31 @@ class StairGenerator(SignalGenerator):
             i = i + 1
 
         return self.step_amplitude * i
+
+
+@dataclass
+class ChirpGenerator(SignalGenerator):
+    start_frequency: float
+    end_frequency: float
+    chirp_length: float  # In seconds
+    amplitude: float
+    phase: float
+
+    def __post_init__(self):
+        self.delta_frequency = self.end_frequency - self.start_frequency
+
+    def value_at_t(self, t: float) -> float:
+        instant_freq = (
+            self.start_frequency + (self.delta_frequency) * t / self.chirp_length
+        )
+        return self.amplitude * np.sin(2.0 * np.pi * instant_freq * t + self.phase)
+
+
+class RepeatedChirpGenerator(ChirpGenerator):
+    def value_at_t(self, t: float) -> float:
+        t_remainder = t
+
+        while t_remainder >= self.chirp_length:
+            t_remainder -= self.chirp_length
+
+        return super().value_at_t(t_remainder)

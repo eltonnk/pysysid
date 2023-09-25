@@ -302,6 +302,9 @@ class TestCEKF:
 if __name__ == "__main__":
     PLOTTING = True
 
+    dt_data = 0.001
+    t_end = 36
+
     motor_params = {
         "R": 1.0,
         "L": 6e-4,
@@ -310,17 +313,24 @@ if __name__ == "__main__":
         "K": 2.38e-2,
     }
 
-    E_w = np.diag([1e-5, 1e-9])
-    E_v = np.diag([1e-12, 1e-9])
+    E_w = np.diag([1e-5, 1e-9])  # i_dot, omega_dot
+    E_v = np.diag([1e-12, 1e-9])  # theta, i
 
     x0 = np.array([0, 0, 0])
-    params_x0 = np.array([-1e4, -1e2, 1e4, 1e5, -1e2, 1e7])
+    params_x0 = np.array([-1e3, -1e1, 1e3, 1e4, -1e1, 1e6])
 
     E_x_0_kal = 0.0001 * np.eye(9)
 
-    v_sg = sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1)
+    # v_sg = sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1)
 
-    tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0)
+    # tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0)
+
+    v_sg = sg.RepeatedChirpGenerator(
+        start_frequency=0.01, end_frequency=2, chirp_length=6, amplitude=1, phase=0
+    )
+    tau_d_sg = sg.RepeatedChirpGenerator(
+        start_frequency=0.005, end_frequency=1, chirp_length=6, amplitude=0.001, phase=0
+    )
 
     input_gen = sg.InputGenerator([v_sg, tau_d_sg])
 
@@ -348,7 +358,7 @@ if __name__ == "__main__":
     motor_pm2i = motor.generate_process_model_to_integrate(rng)
 
     sol_t, sol_u, sol_x, sol_y = motor_pm2i.integrate(
-        compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
+        compute_u_from_t=input_gen.value_at_t, dt_data=dt_data, t_end=t_end, x0=x0
     )
 
     if PLOTTING:
@@ -385,8 +395,6 @@ if __name__ == "__main__":
         ax[2][1].set_ylabel(r"$\omega(t)$ (rad/s)")
         ax[2][1].plot(sol_t, omega, label=r"Angular Velocity", color="C0")
         ax[2][1].legend(loc="upper right")
-
-        plt.show()
 
     X = np.block([[sol_t.reshape(1, len(sol_t)).T, sol_u.T]])
 
@@ -439,7 +447,7 @@ if __name__ == "__main__":
         motor_pm2i_fit = motor_fit.generate_process_model_to_integrate()
 
         sol_t_fit, sol_u_fit, sol_x_fit, sol_y_fit = motor_pm2i_fit.integrate(
-            compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
+            compute_u_from_t=input_gen.value_at_t, dt_data=dt_data, t_end=t_end, x0=x0
         )
 
         v_fit = sol_u_fit[0, :]
@@ -461,11 +469,11 @@ if __name__ == "__main__":
         ax[1][1].plot(sol_t, i_fit, label=r"Current - Best Fit", color="C1")
         ax[1][1].legend(loc="upper right")
 
-        ax[1][1].set_xlabel(r"$t$ (s)")
-        ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
-        ax[1][1].plot(
+        ax[2][1].set_xlabel(r"$t$ (s)")
+        ax[2][1].set_ylabel(r"$\omega(t)$ (rad/s)")
+        ax[2][1].plot(
             sol_t_fit, omega_fit, label=r"Angular Velocity  - Best Fit", color="C1"
         )
-        ax[1][1].legend(loc="upper right")
+        ax[2][1].legend(loc="upper right")
 
         plt.show()
