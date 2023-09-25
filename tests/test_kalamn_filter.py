@@ -302,8 +302,9 @@ class TestCEKF:
 if __name__ == "__main__":
     PLOTTING = True
 
+    chirp_lenght = 6
     dt_data = 0.001
-    t_end = 36
+    t_end = chirp_lenght * 120
 
     motor_params = {
         "R": 1.0,
@@ -326,10 +327,18 @@ if __name__ == "__main__":
     # tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0)
 
     v_sg = sg.RepeatedChirpGenerator(
-        start_frequency=0.01, end_frequency=2, chirp_length=6, amplitude=1, phase=0
+        start_frequency=0.01,
+        end_frequency=2,
+        chirp_length=chirp_lenght,
+        amplitude=1,
+        phase=0,
     )
     tau_d_sg = sg.RepeatedChirpGenerator(
-        start_frequency=0.005, end_frequency=1, chirp_length=6, amplitude=0.001, phase=0
+        start_frequency=0.005,
+        end_frequency=1,
+        chirp_length=chirp_lenght,
+        amplitude=0.001,
+        phase=0,
     )
 
     input_gen = sg.InputGenerator([v_sg, tau_d_sg])
@@ -473,6 +482,82 @@ if __name__ == "__main__":
         ax[2][1].set_ylabel(r"$\omega(t)$ (rad/s)")
         ax[2][1].plot(
             sol_t_fit, omega_fit, label=r"Angular Velocity  - Best Fit", color="C1"
+        )
+        ax[2][1].legend(loc="upper right")
+
+    if PLOTTING:
+        fig, ax = plt.subplots(3, 2)
+
+        l21_kal = sol_x_kal[3, :]
+        l22_kal = sol_x_kal[4, :]
+        l23_kal = sol_x_kal[5, :]
+        l31_kal = sol_x_kal[6, :]
+        l32_kal = sol_x_kal[7, :]
+        l33_kal = sol_x_kal[8, :]
+
+        ax[0][0].set_xlabel(r"$t$ (s)")
+        ax[0][0].set_ylabel(r"$l_{21}(t)$ (V)")
+        ax[0][0].plot(sol_t, l21_kal, label=r"Estimated value", color="C0")
+        ax[0][0].plot(
+            sol_t,
+            motor.l21 * np.ones((len(sol_t))),
+            label=r"Original value",
+            color="C1",
+        )
+        ax[0][0].legend(loc="upper right")
+
+        ax[1][0].set_xlabel(r"$t$ (s)")
+        ax[1][0].set_ylabel(r"$l_{22}(t)$ (V)")
+        ax[1][0].plot(sol_t, l22_kal, label=r"Estimated value", color="C0")
+        ax[1][0].plot(
+            sol_t,
+            motor.l22 * np.ones((len(sol_t))),
+            label=r"Original value",
+            color="C1",
+        )
+        ax[1][0].legend(loc="upper right")
+
+        ax[2][0].set_xlabel(r"$t$ (s)")
+        ax[2][0].set_ylabel(r"$l_{23}(t)$ (V)")
+        ax[2][0].plot(sol_t, l23_kal, label=r"Estimated value", color="C0")
+        ax[2][0].plot(
+            sol_t,
+            motor.l23 * np.ones((len(sol_t))),
+            label=r"Original value",
+            color="C1",
+        )
+        ax[2][0].legend(loc="upper right")
+
+        ax[0][1].set_xlabel(r"$t$ (s)")
+        ax[0][1].set_ylabel(r"$l_{31}(t)$ (V)")
+        ax[0][1].plot(sol_t, l31_kal, label=r"Estimated value", color="C0")
+        ax[0][1].plot(
+            sol_t,
+            motor.l31 * np.ones((len(sol_t))),
+            label=r"Original value",
+            color="C1",
+        )
+        ax[0][1].legend(loc="upper right")
+
+        ax[1][1].set_xlabel(r"$t$ (s)")
+        ax[1][1].set_ylabel(r"$l_{32}(t)$ (V)")
+        ax[1][1].plot(sol_t, l32_kal, label=r"Estimated value", color="C0")
+        ax[1][1].plot(
+            sol_t,
+            motor.l32 * np.ones((len(sol_t))),
+            label=r"Original value",
+            color="C1",
+        )
+        ax[1][1].legend(loc="upper right")
+
+        ax[2][1].set_xlabel(r"$t$ (s)")
+        ax[2][1].set_ylabel(r"$l_{33}(t)$ (V)")
+        ax[2][1].plot(sol_t, l33_kal, label=r"Estimated value", color="C0")
+        ax[2][1].plot(
+            sol_t,
+            motor.l33 * np.ones((len(sol_t))),
+            label=r"Original value",
+            color="C1",
         )
         ax[2][1].legend(loc="upper right")
 
