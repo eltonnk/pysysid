@@ -304,7 +304,7 @@ if __name__ == "__main__":
 
     chirp_lenght = 6
     dt_data = 0.001
-    t_end = chirp_lenght * 120
+    t_end = chirp_lenght * 6
 
     motor_params = {
         "R": 1.0,
@@ -318,7 +318,6 @@ if __name__ == "__main__":
     E_v = np.diag([1e-12, 1e-9])  # theta, i
 
     x0 = np.array([0, 0, 0])
-    params_x0 = np.array([-1e3, -1e1, 1e3, 1e4, -1e1, 1e6])
 
     E_x_0_kal = 0.0001 * np.eye(9)
 
@@ -346,6 +345,11 @@ if __name__ == "__main__":
     motor = Motor(E_w=E_w, E_v=E_v, **motor_params)
 
     original_params = np.array(
+        [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
+    )
+
+    range_var = 0.5
+    params_x0 = (1 + range_var) * np.array(
         [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
     )
 

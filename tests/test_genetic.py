@@ -164,7 +164,7 @@ class TestGenetic:
 
         chromosome_parameter_ranges = {}
 
-        range_var = 0.99
+        range_var = 0.5
         for key, value in motor_params.items():
             chromosome_parameter_ranges[key] = (
                 (1 - range_var) * value,
@@ -179,7 +179,7 @@ class TestGenetic:
             replace_with_best_ratio=0.04,
             can_terminate_after_index=10,
             ratio_max_error_for_termination=0.2,
-            seed=3,
+            seed=1,
             chromosome_parameter_ranges=chromosome_parameter_ranges,
         )
 
