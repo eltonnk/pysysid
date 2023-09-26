@@ -37,6 +37,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     def __init__(
         self,
         process_model: type[pm2i.ProcessModelGenerator] = None,
+        inequality_constraint: Callable[[np.ndarray], np.ndarray] = None,
+        equality_constraint: Callable[[np.ndarray], np.ndarray] = None,
+        equality_constraint_tolerance: float = 0.0001,
         dt: float = None,
         compute_u_from_t: Callable[[float], np.ndarray] = None,
         n_chromosomes: int = 2,
@@ -55,6 +58,20 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             pm2i.ProcessModelGenerator derived type that will be used, when its
             constructor is called with a set of identified paramaters,
             to simulate the response of the identified system.
+        inequality_constraint : Callable[[np.ndarray], np.ndarray], optional
+            Function g(x) such that x is the numerical values of the parameters
+            that are being identified, in the same order as they are found in
+            `chromosome_parameter_ranges`. The constraint is such that
+            g(x) <=0 for a valid set of parameters.
+        equality_constraint : Callable[[np.ndarray], np.ndarray]
+            Function h(x) such that x is the numerical values of the parameters
+            that are being identified, in the same order as they are found in
+            `chromosome_parameter_ranges`. The constraint is such that
+            h(x) = 0 for a valid set of parameters.
+        equality_constraint_tolerance : float
+            Set of parametrs is considered valid according to equality constraint
+            h(x) if |h(x)| <= equality_constraint_tolerance, since exact equality
+            is almost impossible to attain in an optimization setting.
         dt: float, optional
             If None, process model is supposed to be continuous.
             Else, specifies the sampling time for a discrete process model
@@ -74,6 +91,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             TODO
         """
         self.process_model = process_model
+        self.inequality_constraint = inequality_constraint
+        self.equality_constraint = equality_constraint
+        self.equality_constraint_tolerance = equality_constraint_tolerance
         self.dt = dt
         self.compute_u_from_t = compute_u_from_t
         self.n_chromosomes = n_chromosomes
@@ -219,6 +239,13 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
         return np.mean(normalized_square_error)
 
+    def _adaptatively_penalize_constraint_violation(
+        self, mean_error_per_chromosome: np.ndarray
+    ):
+        # from: https://ieeexplore.ieee.org/abstract/document/1237163
+
+        return mean_error_per_chromosome
+
     def _compute_fitness_per_chromosome_from_error(
         self,
         mean_error_per_chromosome: np.ndarray,
@@ -271,6 +298,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 n_outputs,
                 output_inverse_delta_list,
             )
+
+        # TODO: add constraint checking here
 
         fitness_per_chromosome = self._compute_fitness_per_chromosome_from_error(
             mean_error_per_chromosome
