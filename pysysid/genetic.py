@@ -242,7 +242,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
         return np.mean(normalized_square_error)
 
-    def _evaluate_chromosome_infeasibility(self, chromosomes: np.ndarray) -> np.ndarray:
+    def _evaluate_chromosome_infeasibility(
+        self, chromosomes: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         infeasability = np.zeros((self.n_chromosomes))
 
         c = [
@@ -272,26 +274,35 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         normalized_c = np.divide(c, c_max)
         infeasability = np.mean(normalized_c, axis=0)
 
-        return infeasability
+        infeasability_indexes = infeasability > 0.0
+
+        return infeasability, infeasability_indexes
 
     def _find_best_solution(
         self,
-        chromosomes: np.ndarray,
         infeasibility: np.ndarray,
+        infeasability_indexes: np.ndarray,
         mean_error_per_chromosome: np.ndarray,
-    ) -> Tuple[np.ndarray, bool]:
+    ) -> Tuple[float, float, bool]:
         # best individual is the one with lowest infeasibility if
         # all chromosomes are infeasible
 
         population_contains_feasible_solutions = True
-        if np.all(infeasibility > 0):
+        if np.all(infeasability_indexes):
             best_index = np.argmin(infeasibility)
 
             population_contains_feasible_solutions = False
-            return chromosomes[:, best_index], population_contains_feasible_solutions
+
+            best_error = mean_error_per_chromosome[best_index]
+            best_infeasibility = infeasibility[best_index]
+            return (
+                best_error,
+                best_infeasibility,
+                population_contains_feasible_solutions,
+            )
 
         # if not all infeasible, is chosen in the feasible solutions
-        indexes_feasible_solutions = infeasibility == 0.0
+        indexes_feasible_solutions = np.logical_not(infeasability_indexes)
 
         feasible_errors = mean_error_per_chromosome[indexes_feasible_solutions]
 
@@ -299,83 +310,154 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # error
         best_index_feasible_chromosome = np.argmin(feasible_errors)
 
-        feasible_chromosomes = chromosomes[:, indexes_feasible_solutions]
+        best_error = feasible_errors[best_index_feasible_chromosome]
+        best_infeasibility = 0.0
 
         return (
-            feasible_chromosomes[:, best_index_feasible_chromosome],
+            best_error,
+            best_infeasibility,
             population_contains_feasible_solutions,
         )
 
     def _find_worst_infeasible_solution(
         self,
-        chromosomes: np.ndarray,
         infeasibility: np.ndarray,
+        infeasability_indexes: np.ndarray,
         mean_error_per_chromosome: np.ndarray,
         population_contains_feasible_solutions: bool,
-    ) -> Tuple[np.ndarray, bool]:
+    ) -> Tuple[float, float, bool]:
         apply_first_penalty = True
         # if all solutions infeasible, the worst solution is naturally the one
         # with the worst infeasibility
         if not population_contains_feasible_solutions:
             worst_index = np.argmax(infeasibility)
-            return chromosomes[:, worst_index], apply_first_penalty
+            worst_error = mean_error_per_chromosome[worst_index]
+            worst_infeasibility = infeasibility[worst_index]
+            return worst_error, worst_infeasibility, apply_first_penalty
 
         # not all solutions are infeasible
-        indexes_feasible_solutions = infeasibility == 0.0
-        indexes_infeasible_solutions = np.logical_not(indexes_feasible_solutions)
+        indexes_feasible_solutions = np.logical_not(infeasability_indexes)
 
         feasible_errors = mean_error_per_chromosome[indexes_feasible_solutions]
-        infeasible_errors = mean_error_per_chromosome[indexes_infeasible_solutions]
+        infeasible_errors = mean_error_per_chromosome[infeasability_indexes]
 
         min_feasable_error = np.min(feasible_errors)
         min_infeasable_error = np.min(infeasible_errors)
 
         if min_infeasable_error < min_feasable_error:
             indexes_possible_worst_solutions = infeasible_errors < min_feasable_error
-            infeasiblity_infeasable_solutions = infeasibility[
-                indexes_infeasible_solutions
-            ]
+            infeasiblity_infeasable_solutions = infeasibility[infeasability_indexes]
             infeasiblity_possible_worst_solutions = infeasiblity_infeasable_solutions[
                 indexes_possible_worst_solutions
             ]
             index_worst_solution = np.argmax(infeasiblity_possible_worst_solutions)
-
-            infeasible_chromosomes = chromosomes[:, indexes_infeasible_solutions]
-            possible_worst_chromosomes = infeasible_chromosomes[
-                :, indexes_possible_worst_solutions
+            worst_infeasibility = infeasiblity_possible_worst_solutions[
+                index_worst_solution
             ]
-            worst_chromosome = possible_worst_chromosomes[:, index_worst_solution]
 
-            return worst_chromosome, apply_first_penalty
+            infeasible_errors = mean_error_per_chromosome[infeasability_indexes]
+            possible_worst_errors = infeasible_errors[indexes_possible_worst_solutions]
+            worst_error = possible_worst_errors[index_worst_solution]
 
-        infeasiblity_infeasable_solutions = infeasibility[indexes_infeasible_solutions]
+            return worst_error, worst_infeasibility, apply_first_penalty
+
+        infeasiblity_infeasable_solutions = infeasibility[infeasability_indexes]
         index_worst_solution = np.argmax(infeasiblity_infeasable_solutions)
+        worst_infeasibility = infeasiblity_infeasable_solutions[index_worst_solution]
 
-        infeasible_chromosomes = chromosomes[:, indexes_infeasible_solutions]
+        infeasible_errors = mean_error_per_chromosome[infeasability_indexes]
 
-        worst_chromosome = infeasible_chromosomes[:, index_worst_solution]
+        worst_error = infeasible_errors[index_worst_solution]
 
         apply_first_penalty = False
 
-        return worst_chromosome, apply_first_penalty
+        return worst_error, worst_infeasibility, apply_first_penalty
 
-    def _find_highest_obj_func_value_sol(
-        self, chromosomes: np.ndarray, mean_error_per_chromosome: np.ndarray
+    def _find_highest_obj_func_value(
+        self, mean_error_per_chromosome: np.ndarray
     ) -> np.ndarray:
-        index = np.argmax(mean_error_per_chromosome)
+        return np.max(mean_error_per_chromosome)
 
-        return chromosomes[:, index]
+    def _apply_first_penalty(
+        self,
+        mean_error_per_chromosome: np.ndarray,
+        infeasiblity: np.ndarray,
+        infeasability_indexes: np.ndarray,
+        best_error: float,
+        best_infeasibility: float,
+        worst_error: float,
+        worst_infeasibility: float,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        penalized_mean_error_per_chromosome = mean_error_per_chromosome
+
+        divisor = worst_infeasibility - best_infeasibility
+
+        infeasiblity_scaling = (
+            infeasiblity[infeasability_indexes] - best_infeasibility
+        ) / divisor
+
+        penalized_mean_error_per_chromosome[
+            infeasability_indexes
+        ] = penalized_mean_error_per_chromosome[
+            infeasability_indexes
+        ] + infeasiblity_scaling * (
+            best_error - worst_error
+        )
+
+        return penalized_mean_error_per_chromosome, infeasiblity_scaling
+
+    def _evaluate_second_penalty_scaling_factor(
+        self, best_error: float, worst_error: float, highest_error: float
+    ):
+        if worst_error < best_error:
+            return (highest_error - best_error) / best_error
+        elif worst_error > best_error:
+            return (highest_error - worst_error) / worst_error
+        else:
+            return 0.0
+
+    def _apply_second_penalty(
+        self,
+        mean_error_per_chromosome: np.ndarray,
+        infeasability_indexes: np.ndarray,
+        infeasiblity_scaling: np.ndarray,
+        gamma: float,
+    ) -> np.ndarray:
+        penalized_mean_error_per_chromosome = mean_error_per_chromosome
+
+        infeasible_errors = penalized_mean_error_per_chromosome[infeasability_indexes]
+
+        # It is explained in https://ieeexplore.ieee.org/abstract/document/1237163
+        # that the value of this magic number does not have an effect on the
+        # performance of the Genetic Algo, as long as the exponetial term
+        # is there to reduce change in objectoive function value, or error,
+        # for chromosomes with low infeasiblity
+        exp_weight_param = 2.0
+
+        exponential_weighting = (
+            np.exp(exp_weight_param * infeasiblity_scaling) - 1.0
+        ) / (np.exp(2.0) - 1.0)
+
+        penalized_mean_error_per_chromosome[infeasability_indexes] = (
+            infeasible_errors
+            + gamma * np.abs(infeasible_errors) * exponential_weighting
+        )
+        return penalized_mean_error_per_chromosome
 
     def _adaptatively_penalize_constraint_violations(
         self, mean_error_per_chromosome: np.ndarray, chromosomes: np.ndarray
     ):
         # from: https://ieeexplore.ieee.org/abstract/document/1237163
 
+        penalized_mean_error_per_chromosome = mean_error_per_chromosome
+
         # If no constraints, can't penalize error
         if self.inequality_constraint is None and self.equality_constraint is None:
             return mean_error_per_chromosome
 
-        infeasability = self._evaluate_chromosome_infeasibility(chromosomes)
+        infeasability, infeasability_indexes = self._evaluate_chromosome_infeasibility(
+            chromosomes
+        )
 
         # if all solutions are feasible, then no need to penalize constraint
         # violations as there are None
@@ -385,24 +467,54 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # identify bounding solutions
         # X downward hat
         (
-            best_solution,
+            best_error,
+            best_infeasibility,
             population_contains_feasible_solutions,
         ) = self._find_best_solution(
-            chromosomes, infeasability, mean_error_per_chromosome
+            infeasability, infeasability_indexes, mean_error_per_chromosome
         )
 
         # X hat
-        worst_solution, apply_first_penalty = self._find_worst_infeasible_solution(
-            chromosomes,
+        (
+            worst_error,
+            worst_infeasibility,
+            apply_first_penalty,
+        ) = self._find_worst_infeasible_solution(
             infeasability,
+            infeasability_indexes,
             mean_error_per_chromosome,
             population_contains_feasible_solutions,
         )
 
         # X downward round hat
-        highest_val_solution = self._find_highest_obj_func_value_sol(
-            chromosomes, mean_error_per_chromosome
+        highest_error = self._find_highest_obj_func_value_sol(mean_error_per_chromosome)
+
+        if apply_first_penalty and best_error > worst_error:
+            (
+                penalized_mean_error_per_chromosome,
+                infeasiblity_scaling,
+            ) = self._apply_first_penalty(
+                mean_error_per_chromosome,
+                infeasability,
+                infeasability_indexes,
+                best_error,
+                best_infeasibility,
+                worst_error,
+                worst_infeasibility,
+            )
+
+        gamma = self._evaluate_second_penalty_scaling_factor(
+            best_error, worst_error, highest_error
         )
+
+        penalized_mean_error_per_chromosome = self._apply_second_penalty(
+            penalized_mean_error_per_chromosome,
+            infeasability_indexes,
+            infeasiblity_scaling,
+            gamma,
+        )
+
+        return penalized_mean_error_per_chromosome
 
     def _compute_fitness_per_chromosome_from_error(
         self,
