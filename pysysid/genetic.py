@@ -247,21 +247,33 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     ) -> Tuple[np.ndarray, np.ndarray]:
         infeasability = np.zeros((self.n_chromosomes))
 
-        c = [
-            [],
-            [],
-        ]
+        if (
+            self.inequality_constraint is not None
+            and self.equality_constraint is not None
+        ):
+            c = [
+                [],
+                [],
+            ]
+        else:
+            c = [[]]
 
         for j in range(self.n_chromosomes):
-            c_ineq_j = self.inequality_constraint(chromosomes[:, j])
-            # infeasiblity is necessarily positive since its either zero or
-            # a positive value ( h(x) <0)
-            c_ineq_j = np.clip(c_ineq_j, a_min=0.0)
-            c[0].append(c_ineq_j)
-            c_eq_j = self.inequality_constraint(chromosomes[:, j])
-            c_eq_j = np.abs(c_eq_j) - self.equality_constraint_tolerance
-            c_eq_j = np.clip(c_eq_j, a_min=0.0)
-            c[1].append(c_eq_j)
+            if self.inequality_constraint is not None:
+                c_ineq_j = self.inequality_constraint(chromosomes[:, j])
+                # infeasiblity is necessarily positive since its either zero or
+                # a positive value ( h(x) <0)
+                c_ineq_j = np.clip(c_ineq_j, a_min=0.0, a_max=None)
+                c[0].append(c_ineq_j.reshape((len(c_ineq_j), 1)))
+            if self.equality_constraint is not None:
+                c_eq_j = self.equality_constraint(chromosomes[:, j])
+                c_eq_j = np.abs(c_eq_j) - self.equality_constraint_tolerance
+                c_eq_j = np.clip(c_eq_j, a_min=0.0, a_max=None)
+                c_eq_j = c_eq_j.reshape((len(c_eq_j), 1))
+                if self.inequality_constraint is not None:
+                    c[1].append(c_eq_j)
+                else:
+                    c[0].append(c_eq_j)
 
         c = np.block(c)
 
@@ -269,9 +281,17 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # values throughout all chromosomes in this generation so that we can normalize
         # each constraint individually and thus no constraint is prioritized
         # over another
-        c_max = np.max(c, axis=1)
+        c_max = np.max(c, axis=1).reshape((c.shape[0], 1))
 
-        normalized_c = np.divide(c, c_max)
+        index_non_zero_x_max = c_max != 0.0
+        # if every constraint is respected, we set all infeaiblity values to
+        # zero, and infeasibility indexes should all be false
+        if np.all(np.logical_not(index_non_zero_x_max)):
+            return infeasability, infeasability > 0.0
+
+        normalized_c = np.divide(
+            c[index_non_zero_x_max, :], c_max[index_non_zero_x_max]
+        )
         infeasability = np.mean(normalized_c, axis=0)
 
         infeasability_indexes = infeasability > 0.0
@@ -409,6 +429,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     def _evaluate_second_penalty_scaling_factor(
         self, best_error: float, worst_error: float, highest_error: float
     ):
+        # TODO : error in paper in this spot... conditions are unclear.
+        # check if this works as intended... maybe analyse signs are correct?
         if worst_error < best_error:
             return (highest_error - best_error) / best_error
         elif worst_error > best_error:
@@ -432,6 +454,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # performance of the Genetic Algo, as long as the exponetial term
         # is there to reduce change in objectoive function value, or error,
         # for chromosomes with low infeasiblity
+
+        # TODO: add this as an hyper-param?
         exp_weight_param = 2.0
 
         exponential_weighting = (
