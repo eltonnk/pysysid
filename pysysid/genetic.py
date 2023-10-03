@@ -163,6 +163,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self._g_index = None
         self._elite_chromosome_error_list = np.zeros((n_iter))
 
+    def _initialize_simulation_flags(self):
+        self._chromosomes_to_be_simulated = np.full((self.n_chromosomes), True)
+
     def _initialize_chromosomes(
         self, rng: np.random.Generator
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -597,21 +600,26 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         n_outputs: int,
         y: np.ndarray,
         output_inverse_delta_list: List[float],
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        mean_error_per_chromosome = np.zeros((self.n_chromosomes))
+        mean_error_per_chromosome_no_penalization: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        mean_error_per_chromosome = mean_error_per_chromosome_no_penalization
         for j in range(self.n_chromosomes):
             # Simulate model
-            chromosome_j_dict = self._gen_chromosome_dict(chromosomes[:, j])
-            sol_y = self._simulate_chromosome_trajectory(
-                chromosome_dict=chromosome_j_dict, dt_data=dt_data, X_t=X_t
-            )
 
-            mean_error_per_chromosome[j] = self._compute_chromosome_mean_error(
-                y,
-                sol_y,
-                n_outputs,
-                output_inverse_delta_list,
-            )
+            if self._chromosomes_to_be_simulated[j]:
+                chromosome_j_dict = self._gen_chromosome_dict(chromosomes[:, j])
+                sol_y = self._simulate_chromosome_trajectory(
+                    chromosome_dict=chromosome_j_dict, dt_data=dt_data, X_t=X_t
+                )
+
+                mean_error_per_chromosome[j] = self._compute_chromosome_mean_error(
+                    y,
+                    sol_y,
+                    n_outputs,
+                    output_inverse_delta_list,
+                )
+
+        mean_error_per_chromosome_no_penalization = mean_error_per_chromosome
 
         mean_error_per_chromosome = self._adaptatively_penalize_constraint_violations(
             mean_error_per_chromosome, chromosomes
@@ -621,7 +629,11 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             mean_error_per_chromosome
         )
 
-        return fitness_per_chromosome, mean_error_per_chromosome
+        return (
+            fitness_per_chromosome,
+            mean_error_per_chromosome,
+            mean_error_per_chromosome_no_penalization,
+        )
 
     def _crossover_chromosomes(
         self,
@@ -637,8 +649,10 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 j = rng.integers(low=0, high=self.n_chromosomes)
             if fitness_per_chromosome[i] > fitness_per_chromosome[j]:
                 chromosomes[:, j] = r * chromosomes[:, i] + (1 - r) * chromosomes[:, j]
+                self._chromosomes_to_be_simulated[j] = True
             elif fitness_per_chromosome[i] < fitness_per_chromosome[j]:
                 chromosomes[:, i] = r * chromosomes[:, j] + (1 - r) * chromosomes[:, i]
+                self._chromosomes_to_be_simulated[i] = True
 
         return chromosomes
 
@@ -658,6 +672,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                     chromosomes[i, j] = chromosomes[i, j] + rng.normal(
                         loc=0, scale=param_std_deviation[i]
                     )
+                    self._chromosomes_to_be_simulated[j] = True
 
         return chromosomes
 
@@ -665,28 +680,27 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self,
         chromosomes: np.ndarray,
         mean_error_per_chromosome: np.ndarray,
+        mean_error_per_chromosome_no_penalization: np.ndarray,
         generation_index: int,
     ):
-        if generation_index == 0:
-            self._elite_chromosome_error = np.min(
-                mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
-            )
-            index_elite_chromosome = np.argmin(
-                mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
-            )
-            self._elite_chromosome = chromosomes[:, index_elite_chromosome]
-            return
+        non_nan_error_indexes = ~np.isnan(mean_error_per_chromosome)
+        valid_errors = mean_error_per_chromosome[non_nan_error_indexes]
+        index_elite_chromosome = np.argmin(valid_errors)
+        new_elite_chromosome_error = valid_errors[index_elite_chromosome]
 
-        generational_min_chromosome_error = np.min(
-            mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
-        )
-
-        if generational_min_chromosome_error < self._elite_chromosome_error:
-            self._elite_chromosome_error = generational_min_chromosome_error
-            index_elite_chromosome = np.argmin(
-                mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
-            )
-            self._elite_chromosome = chromosomes[:, index_elite_chromosome]
+        if (
+            generation_index == 0
+            or new_elite_chromosome_error < self._elite_chromosome_error
+        ):
+            self._elite_chromosome_error = new_elite_chromosome_error
+            valid_errors_no_penal = mean_error_per_chromosome_no_penalization[
+                non_nan_error_indexes
+            ]
+            self._elite_chromosome_error_no_penal = valid_errors_no_penal[
+                index_elite_chromosome
+            ]
+            valid_chromosomes = chromosomes[:, non_nan_error_indexes]
+            self._elite_chromosome = valid_chromosomes[:, index_elite_chromosome]
 
         # This list lets us see progress of chromosome error
         self._elite_chromosome_error_list[
@@ -698,13 +712,18 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         )
 
     def _replace_some_chromosomes_with_elite(
-        self, chromosomes: np.ndarray, rng: np.random.Generator
-    ) -> np.ndarray:
+        self,
+        chromosomes: np.ndarray,
+        mean_error_per_chromosome_no_penalization: np.ndarray,
+        rng: np.random.Generator,
+    ) -> Tuple[np.ndarray, np.ndarray]:
         for _ in range(self._n_chromosomes_to_replace):
             k = rng.integers(low=0, high=self.n_chromosomes)
             chromosomes[:, k] = self._elite_chromosome
-
-        return chromosomes
+            mean_error_per_chromosome_no_penalization[
+                k
+            ] = self._elite_chromosome_error_no_penal
+        return chromosomes, mean_error_per_chromosome_no_penalization
 
     def _check_for_termination_condition(
         self,
@@ -790,6 +809,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         self._initialize_replacement_step_variables()
         self._initialize_termination_checking_variables(n_iter)
+        self._initialize_simulation_flags()
 
         chromosomes, param_std_deviation = self._initialize_chromosomes(rng)
 
@@ -800,6 +820,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             n_outputs,
             output_inverse_delta_list,
         ) = self._preprocessing_input_output_data(X, y)
+
+        mean_error_per_chromosome_no_penalization = np.zeros((self.n_chromosomes))
 
         # TODO: handle if self.process_model is None
         # TODO: handle continuous/discrete sim if self.dt is None or not
@@ -815,6 +837,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             (
                 fitness_per_chromosome,
                 mean_error_per_chromosome,
+                mean_error_per_chromosome_no_penalization,
             ) = self._evaluate_chromosome_fitness(
                 chromosomes=chromosomes,
                 dt_data=dt_data,
@@ -822,7 +845,11 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 n_outputs=n_outputs,
                 y=y,
                 output_inverse_delta_list=output_inverse_delta_list,
+                mean_error_per_chromosome_no_penalization=mean_error_per_chromosome_no_penalization,
             )
+
+            # we will only simulate trajectory for chromosomes that have changed in crossover, mutate or replacement steps
+            self._chromosomes_to_be_simulated = np.full((self.n_chromosomes), False)
 
             # cross over
             chromosomes = self._crossover_chromosomes(
@@ -834,10 +861,18 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             )
             # elitism
             self._select_elite_chromosome(
-                chromosomes, mean_error_per_chromosome, generation_index
+                chromosomes,
+                mean_error_per_chromosome,
+                mean_error_per_chromosome_no_penalization,
+                generation_index,
             )
             # replacement
-            chromosomes = self._replace_some_chromosomes_with_elite(chromosomes, rng)
+            (
+                chromosomes,
+                mean_error_per_chromosome_no_penalization,
+            ) = self._replace_some_chromosomes_with_elite(
+                chromosomes, mean_error_per_chromosome_no_penalization, rng
+            )
             # termination
             if self._check_for_termination_condition(generation_index):
                 return self
