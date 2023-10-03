@@ -13,14 +13,25 @@ from . import pm2i, util
 class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     """Genetic algorithm model.
 
-    TODO: add references
     References
     ----------
-    https://ieeexplore.ieee.org/document/1490788
 
-    https://www.sciencedirect.com/science/article/pii/S0019057807000237
+    A. Dupuis, M. Ghribi and A. Kaddouri, "Multiobjective genetic estimation of
+    DC motor parameters and load torque," 2004 IEEE International Conference on
+    Industrial Technology, 2004. IEEE ICIT '04., Hammamet, Tunisia, 2004,
+    pp. 1511-1514 Vol. 3, doi: 10.1109/ICIT.2004.1490788.
+    (https://ieeexplore.ieee.org/document/1490788)
 
-    https://ieeexplore.ieee.org/abstract/document/1237163
+    N.M. Kwok, Q.P. Ha, M.T. Nguyen, J. Li, B. Samali, Bouc–Wen model parameter
+    identification for a MR fluid damper using computationally efficient GA, ISA
+    Transactions, Volume 46, Issue 2, 2007, Pages 167-179, ISSN 0019-0578,
+    https://doi.org/10.1016/j.isatra.2006.08.005.
+    (https://www.sciencedirect.com/science/article/pii/S0019057807000237)
+
+    R. Farmani and J. A. Wright, "Self-adaptive fitness formulation for
+    constrained optimization," in IEEE Transactions on Evolutionary Computation,
+    vol. 7, no. 5, pp. 445-455, Oct. 2003, doi: 10.1109/TEVC.2003.817236.
+    (https://ieeexplore.ieee.org/abstract/document/1237163)
 
 
     """
@@ -234,7 +245,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         for i in range(n_outputs):
             square = np.square(sol_y[:, i] - y[:, i])
             inverse_delta = output_inverse_delta_list[i]
-            # the error fo each output is normalized so that no output error
+            # the error for each output is normalized so that no output error
             # supersedes another output in the euclidean norm
             # see https://ieeexplore.ieee.org/document/1490788
             normalized_square_error[:, i] = square * inverse_delta

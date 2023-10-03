@@ -175,7 +175,7 @@ if __name__ == "__main__":
 
     chromosome_parameter_ranges = {}
 
-    range_var = 0.7
+    range_var = 0.9
     for key, value in motor_params.items():
         chromosome_parameter_ranges[key] = (
             (1 - range_var) * value,
@@ -187,7 +187,7 @@ if __name__ == "__main__":
         inequality_constraint=motor_inequality_constraint,
         dt=motor_dt,
         compute_u_from_t=input_gen.value_at_t,
-        n_chromosomes=30,
+        n_chromosomes=50,
         replace_with_best_ratio=0.04,
         can_terminate_after_index=10,
         ratio_max_error_for_termination=0.2,
