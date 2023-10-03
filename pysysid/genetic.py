@@ -283,7 +283,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # over another
         c_max = np.max(c, axis=1).reshape((c.shape[0], 1))
 
-        index_non_zero_x_max = c_max != 0.0
+        index_non_zero_x_max = (c_max != 0.0).reshape((c.shape[0]))
         # if every constraint is respected, we set all infeaiblity values to
         # zero, and infeasibility indexes should all be false
         if np.all(np.logical_not(index_non_zero_x_max)):
@@ -398,23 +398,30 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     ) -> np.ndarray:
         return np.max(mean_error_per_chromosome)
 
-    def _apply_first_penalty(
+    def _compute_infeasibility_scaling(
         self,
-        mean_error_per_chromosome: np.ndarray,
         infeasiblity: np.ndarray,
         infeasability_indexes: np.ndarray,
-        best_error: float,
         best_infeasibility: float,
-        worst_error: float,
         worst_infeasibility: float,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        penalized_mean_error_per_chromosome = mean_error_per_chromosome
-
+    ) -> np.ndarray:
         divisor = worst_infeasibility - best_infeasibility
 
         infeasiblity_scaling = (
             infeasiblity[infeasability_indexes] - best_infeasibility
         ) / divisor
+
+        return infeasiblity_scaling
+
+    def _apply_first_penalty(
+        self,
+        mean_error_per_chromosome: np.ndarray,
+        infeasiblity_scaling: np.ndarray,
+        infeasability_indexes: np.ndarray,
+        best_error: float,
+        worst_error: float,
+    ) -> np.ndarray:
+        penalized_mean_error_per_chromosome = mean_error_per_chromosome
 
         penalized_mean_error_per_chromosome[
             infeasability_indexes
@@ -424,7 +431,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             best_error - worst_error
         )
 
-        return penalized_mean_error_per_chromosome, infeasiblity_scaling
+        return penalized_mean_error_per_chromosome
 
     def _evaluate_second_penalty_scaling_factor(
         self, best_error: float, worst_error: float, highest_error: float
@@ -511,20 +518,22 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         )
 
         # X downward round hat
-        highest_error = self._find_highest_obj_func_value_sol(mean_error_per_chromosome)
+        highest_error = self._find_highest_obj_func_value(mean_error_per_chromosome)
+
+        infeasiblity_scaling = self._compute_infeasibility_scaling(
+            infeasability,
+            infeasability_indexes,
+            best_infeasibility,
+            worst_infeasibility,
+        )
 
         if apply_first_penalty and best_error > worst_error:
-            (
-                penalized_mean_error_per_chromosome,
-                infeasiblity_scaling,
-            ) = self._apply_first_penalty(
+            penalized_mean_error_per_chromosome = self._apply_first_penalty(
                 mean_error_per_chromosome,
-                infeasability,
+                infeasiblity_scaling,
                 infeasability_indexes,
                 best_error,
-                best_infeasibility,
                 worst_error,
-                worst_infeasibility,
             )
 
         gamma = self._evaluate_second_penalty_scaling_factor(

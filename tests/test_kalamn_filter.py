@@ -304,7 +304,7 @@ if __name__ == "__main__":
 
     chirp_lenght = 6
     dt_data = 0.001
-    t_end = chirp_lenght * 6
+    t_end = chirp_lenght * 40
 
     motor_params = {
         "R": 1.0,
@@ -348,7 +348,7 @@ if __name__ == "__main__":
         [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
     )
 
-    range_var = 0.5
+    range_var = 0.1
     params_x0 = (1 + range_var) * np.array(
         [motor.l21, motor.l22, motor.l23, motor.l31, motor.l32, motor.l33]
     )
