@@ -6,6 +6,8 @@ import numpy as np
 
 @dataclass
 class SignalGenerator:
+    offset: float = 0.0
+
     def value_at_t(self, t: float) -> float:
         raise NotImplementedError("Derived class should override this method")
 
@@ -44,7 +46,9 @@ class SquareGenerator(SignalGenerator):
         while t_remainder >= self.period:
             t_remainder -= self.period
 
-        return self.amplitude if t_remainder >= self.half_period else self.m_amplitude
+        return (
+            self.amplitude if t_remainder >= self.half_period else self.m_amplitude
+        ) + self.offset
 
 
 @dataclass
@@ -53,7 +57,7 @@ class StepGenerator(SignalGenerator):
     amplitude: float
 
     def value_at_t(self, t: float) -> float:
-        return 0 if t < self.on_at else self.amplitude
+        return (0 if t < self.on_at else self.amplitude) + self.offset
 
 
 @dataclass
@@ -63,7 +67,10 @@ class SineGenerator(SignalGenerator):
     phase: float
 
     def value_at_t(self, t: float) -> float:
-        return self.amplitude * np.sin(2.0 * np.pi * self.frequency * t + self.phase)
+        return (
+            self.amplitude * np.sin(2.0 * np.pi * self.frequency * t + self.phase)
+            + self.offset
+        )
 
 
 @dataclass
@@ -79,7 +86,7 @@ class StairGenerator(SignalGenerator):
             t_remainder -= self.period
             i = i + 1
 
-        return self.step_amplitude * i
+        return self.step_amplitude * i + self.offset
 
 
 @dataclass
@@ -97,7 +104,10 @@ class ChirpGenerator(SignalGenerator):
         instant_freq = (
             self.start_frequency + (self.delta_frequency) * t / self.chirp_length
         )
-        return self.amplitude * np.sin(2.0 * np.pi * instant_freq * t + self.phase)
+        return (
+            self.amplitude * np.sin(2.0 * np.pi * instant_freq * t + self.phase)
+            + self.offset
+        )
 
 
 class RepeatedChirpGenerator(ChirpGenerator):
