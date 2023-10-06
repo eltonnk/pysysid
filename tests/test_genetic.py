@@ -104,7 +104,7 @@ def motor_inequality_constraint(chromosome: np.ndarray) -> np.ndarray:
 
 
 @pytest.mark.parametrize(
-    "og_params, input_gen, pmg_type, dt_data, t_end, range_var, inequality_constraint, n_chromosomes, replace_with_best_ratio, seed, n_iter",
+    "og_params, input_gen, pmg_type, dt_data, t_end, range_var, inequality_constraint, n_chromosomes, replace_with_best_ratio, seed, n_iter, absolute_tolerance",
     [
         (
             {
@@ -129,7 +129,58 @@ def motor_inequality_constraint(chromosome: np.ndarray) -> np.ndarray:
             0.01,
             2,
             50,
-        )
+            0.009,
+        ),
+        (
+            {
+                "R": 1.0,
+                "L": 6e-4,
+                "J": 8e-7,
+                "B": 1.33e-5,
+                "K": 2.38e-2,
+            },
+            sg.InputGenerator(
+                [
+                    sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1),
+                    sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0),
+                ]
+            ),
+            Motor,
+            0.01,
+            2,
+            0.5,
+            motor_inequality_constraint,
+            30,
+            0.04,
+            1,
+            30,
+            0.006,
+        ),
+        (
+            {
+                "R": 1.0,
+                "L": 6e-4,
+                "J": 8e-7,
+                "B": 1.33e-5,
+                "K": 2.38e-2,
+            },
+            sg.InputGenerator(
+                [
+                    sg.SquareGenerator(period=1, pulse_width=0.5, amplitude=1),
+                    sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0),
+                ]
+            ),
+            Motor,
+            0.01,
+            2,
+            0.7,
+            motor_inequality_constraint,
+            50,
+            0.02,
+            2,
+            50,
+            0.007,
+        ),
     ],
 )
 class TestGenetic:
@@ -148,6 +199,7 @@ class TestGenetic:
         replace_with_best_ratio: float,
         seed: int,
         n_iter: int,
+        absolute_tolerance: float,
     ):
         """Used to test the fit method from the Genetic class."""
 
@@ -194,4 +246,6 @@ class TestGenetic:
 
         original_params = np.array(list(og_params.values()))
 
-        np.testing.assert_allclose(best_fit_params, original_params, rtol=0, atol=0.02)
+        np.testing.assert_allclose(
+            best_fit_params, original_params, rtol=0.0, atol=absolute_tolerance
+        )
