@@ -604,6 +604,45 @@ class ProcessModelGenerator:
         """
         raise NotImplementedError("Derived class should override this method")
 
+    @staticmethod
+    def param_inequality_constraint(params: np.ndarray) -> np.ndarray:
+        """Returns the value of inequality constraint function h(x).
+        h(x) is such that the inequality h(x) <= 0 should be true
+        for all possible values of x, with x being the array `params`.
+
+        Parameters
+        ----------
+        params : np.ndarray
+            Array of parameters. Should be in the same order as the parameters
+            in the `kwargs` dict in the derived class constructor.
+
+        Returns
+        -------
+        np.ndarray
+            The constraint's function h(x)'s value given x.
+        """
+        raise NotImplementedError("Derived class should override this method")
+
+    @staticmethod
+    def param_equality_constraint(params: np.ndarray) -> np.ndarray:
+        """Returns the value of inequality constraint function g(x).
+        g(x) is such that the inequality g(x) = 0 should be true
+        for all possible values of x, with x being the array `params`.
+
+        Parameters
+        ----------
+        params : np.ndarray
+            Array of parameters. Should be in the same order as the parameters
+            in the `kwargs` dict in the derived class constructor.
+
+        Returns
+        -------
+        np.ndarray
+            The constraint function g(x)'s value given x.
+
+        """
+        raise NotImplementedError("Derived class should override this method")
+
     def generate_process_model_to_integrate(
         self,
         rng: np.random.Generator = None,

@@ -85,6 +85,12 @@ class Motor(pm2i.ProcessModelGenerator):
     ) -> np.ndarray:
         return self.mat_C @ total_state + self.mat_D @ total_input
 
+    def param_inequality_constraint(params: np.ndarray) -> np.ndarray:
+        # all params should be positive. thus if chromosome is x, x_i >= 0.
+        # since ineqaulity constraint should be of the form h(x) <= 0, we have
+
+        return -1.0 * params
+
     def generate_process_model_to_integrate(self) -> pm2i.ProcessModelToIntegrate:
         return pm2i.ProcessModelToIntegrate(
             nbr_states=3,
@@ -93,13 +99,6 @@ class Motor(pm2i.ProcessModelGenerator):
             fct_for_x_dot=self.compute_state_derivative,
             fct_for_y=self.compute_output,
         )
-
-
-def motor_inequality_constraint(chromosome: np.ndarray) -> np.ndarray:
-    # all params should be positive. thus if chromosome is x, x_i > 0.
-    # since ineqaulity constraint should be of the form h(x) < 0, we have
-
-    return -1.0 * chromosome
 
 
 if __name__ == "__main__":
@@ -172,7 +171,6 @@ if __name__ == "__main__":
 
     genetic_algo_regressor = genetic.Genetic(
         process_model=Motor,
-        inequality_constraint=motor_inequality_constraint,
         dt=motor_dt,
         compute_u_from_t=input_gen.value_at_t,
         n_chromosomes=100,

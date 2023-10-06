@@ -51,8 +51,6 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     def __init__(
         self,
         process_model: type[pm2i.ProcessModelGenerator] = None,
-        inequality_constraint: Callable[[np.ndarray], np.ndarray] = None,
-        equality_constraint: Callable[[np.ndarray], np.ndarray] = None,
         equality_constraint_tolerance: float = 0.0001,
         dt: float = None,
         compute_u_from_t: Callable[[float], np.ndarray] = None,
@@ -72,20 +70,12 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             pm2i.ProcessModelGenerator derived type that will be used, when its
             constructor is called with a set of identified paramaters,
             to simulate the response of the identified system.
-        inequality_constraint : Callable[[np.ndarray], np.ndarray], optional
-            Function g(x) such that x is the numerical values of the parameters
-            that are being identified, in the same order as they are found in
-            `chromosome_parameter_ranges`. The constraint is such that
-            g(x) <=0 for a valid set of parameters.
-        equality_constraint : Callable[[np.ndarray], np.ndarray]
-            Function h(x) such that x is the numerical values of the parameters
-            that are being identified, in the same order as they are found in
-            `chromosome_parameter_ranges`. The constraint is such that
-            h(x) = 0 for a valid set of parameters.
         equality_constraint_tolerance : float
             Set of parametrs is considered valid according to equality constraint
             h(x) if |h(x)| <= equality_constraint_tolerance, since exact equality
             is almost impossible to attain in an optimization setting.
+            The equality contraint should be defined in `process_model` as the
+            `param_equality_constraint` method.
         dt: float, optional
             If None, process model is supposed to be continuous.
             Else, specifies the sampling time for a discrete process model
@@ -105,9 +95,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             TODO
         """
         self.process_model = process_model
-        self.inequality_constraint = inequality_constraint
-        self.equality_constraint = equality_constraint
-        self.equality_constraint_tolerance = equality_constraint_tolerance
+        self._equality_constraint_tolerance = equality_constraint_tolerance
         self.dt = dt
         self.compute_u_from_t = compute_u_from_t
         self.n_chromosomes = n_chromosomes
@@ -140,7 +128,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # (don't want to replace too many chromosomes by best one or else
         # convergence slows down)
 
-    def _validate_replacement_ratio(self):
+    def _validate_ratio_max_error_for_termination(self):
         if (
             self.ratio_max_error_for_termination < 0
             or self.ratio_max_error_for_termination > 1
@@ -151,7 +139,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 Current value is {self.ratio_max_error_for_termination}."""
             )
 
-        # TODO: raise warning if the replacement ratio is over  50%, 70%, 90% ?
+        # TODO: raise warning if the ratio is over  50%, 70%, 90% ?
         # (dont want to stop if error has not gone down)
 
     def _initialize_replacement_step_variables(self):
@@ -165,6 +153,25 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
     def _initialize_simulation_flags(self):
         self._chromosomes_to_be_simulated = np.full((self.n_chromosomes), True)
+
+    def _initialize_constraints(self):
+        fake_params_array = np.zeros(
+            (len(list(self.chromosome_parameter_ranges.keys())))
+        )
+
+        self._inequality_constraint = None
+        try:
+            self.process_model.param_inequality_constraint(fake_params_array)
+            self._inequality_constraint = self.process_model.param_inequality_constraint
+        except NotImplementedError:
+            self._inequality_constraint = None
+
+        self._equality_constraint = None
+        try:
+            self.process_model.param_equality_constraint(fake_params_array)
+            self._equality_constraint = self.process_model.param_equality_constraint
+        except NotImplementedError:
+            self._equality_constraint = None
 
     def _initialize_chromosomes(
         self, rng: np.random.Generator
@@ -262,8 +269,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         infeasability = np.zeros((self.n_chromosomes))
 
         if (
-            self.inequality_constraint is not None
-            and self.equality_constraint is not None
+            self._inequality_constraint is not None
+            and self._equality_constraint is not None
         ):
             c = [
                 [],
@@ -273,18 +280,18 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             c = [[]]
 
         for j in range(self.n_chromosomes):
-            if self.inequality_constraint is not None:
-                c_ineq_j = self.inequality_constraint(chromosomes[:, j])
+            if self._inequality_constraint is not None:
+                c_ineq_j = self._inequality_constraint(chromosomes[:, j])
                 # infeasiblity is necessarily positive since its either zero or
                 # a positive value ( h(x) <0)
                 c_ineq_j = np.clip(c_ineq_j, a_min=0.0, a_max=None)
                 c[0].append(c_ineq_j.reshape((len(c_ineq_j), 1)))
-            if self.equality_constraint is not None:
-                c_eq_j = self.equality_constraint(chromosomes[:, j])
-                c_eq_j = np.abs(c_eq_j) - self.equality_constraint_tolerance
+            if self._equality_constraint is not None:
+                c_eq_j = self._equality_constraint(chromosomes[:, j])
+                c_eq_j = np.abs(c_eq_j) - self._equality_constraint_tolerance
                 c_eq_j = np.clip(c_eq_j, a_min=0.0, a_max=None)
                 c_eq_j = c_eq_j.reshape((len(c_eq_j), 1))
-                if self.inequality_constraint is not None:
+                if self._inequality_constraint is not None:
                     c[1].append(c_eq_j)
                 else:
                     c[0].append(c_eq_j)
@@ -497,7 +504,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         penalized_mean_error_per_chromosome = mean_error_per_chromosome
 
         # If no constraints, can't penalize error
-        if self.inequality_constraint is None and self.equality_constraint is None:
+        if self._inequality_constraint is None and self._equality_constraint is None:
             return mean_error_per_chromosome
 
         infeasability, infeasability_indexes = self._evaluate_chromosome_infeasibility(
@@ -802,7 +809,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         self._validate_chromosome_parameter_range()
         self._validate_replacement_ratio()
-        self._validate_replacement_ratio()
+        self._validate_ratio_max_error_for_termination()
 
         # Random number generator. Can specify seed for reproducibility.
         rng = default_rng(self.seed)
@@ -810,6 +817,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self._initialize_replacement_step_variables()
         self._initialize_termination_checking_variables(n_iter)
         self._initialize_simulation_flags()
+        self._initialize_constraints()
 
         chromosomes, param_std_deviation = self._initialize_chromosomes(rng)
 

@@ -86,6 +86,12 @@ class Motor(pm2i.ProcessModelGenerator):
     ) -> np.ndarray:
         return self.mat_C @ total_state + self.mat_D @ total_input
 
+    def param_inequality_constraint(params: np.ndarray) -> np.ndarray:
+        # all params should be positive. thus if chromosome is x, x_i >= 0.
+        # since ineqaulity constraint should be of the form h(x) <= 0, we have
+
+        return -1.0 * params
+
     def generate_process_model_to_integrate(self) -> pm2i.ProcessModelToIntegrate:
         return pm2i.ProcessModelToIntegrate(
             nbr_states=3,
@@ -104,7 +110,7 @@ def motor_inequality_constraint(chromosome: np.ndarray) -> np.ndarray:
 
 
 @pytest.mark.parametrize(
-    "og_params, input_gen, pmg_type, dt_data, t_end, range_var, inequality_constraint, n_chromosomes, replace_with_best_ratio, seed, n_iter, absolute_tolerance",
+    "og_params, input_gen, pmg_type, dt_data, t_end, range_var, n_chromosomes, replace_with_best_ratio, seed, n_iter, absolute_tolerance",
     [
         (
             {
@@ -124,7 +130,6 @@ def motor_inequality_constraint(chromosome: np.ndarray) -> np.ndarray:
             0.01,
             2,
             0.99,
-            motor_inequality_constraint,
             100,
             0.01,
             2,
@@ -149,7 +154,6 @@ def motor_inequality_constraint(chromosome: np.ndarray) -> np.ndarray:
             0.01,
             2,
             0.5,
-            motor_inequality_constraint,
             30,
             0.04,
             1,
@@ -174,7 +178,6 @@ def motor_inequality_constraint(chromosome: np.ndarray) -> np.ndarray:
             0.01,
             2,
             0.7,
-            motor_inequality_constraint,
             50,
             0.02,
             2,
@@ -194,7 +197,6 @@ class TestGenetic:
         dt_data: float,
         t_end: float,
         range_var: float,
-        inequality_constraint: Callable[[np.ndarray], np.ndarray],
         n_chromosomes: int,
         replace_with_best_ratio: float,
         seed: int,
@@ -229,7 +231,6 @@ class TestGenetic:
 
         genetic_algo_regressor = genetic.Genetic(
             process_model=pmg_type,
-            inequality_constraint=inequality_constraint,
             dt=motor_dt,
             compute_u_from_t=input_gen.value_at_t,
             n_chromosomes=n_chromosomes,
