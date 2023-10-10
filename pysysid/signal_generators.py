@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
@@ -27,9 +27,9 @@ class InputGenerator:
 
 @dataclass
 class SquareGenerator(SignalGenerator):
-    period: float
-    pulse_width: float
-    amplitude: float
+    period: float = 1.0
+    pulse_width: float = 0.5
+    amplitude: float = 1.0
 
     def __post_init__(self):
         if self.pulse_width < 0 or self.pulse_width > 1:
@@ -53,8 +53,8 @@ class SquareGenerator(SignalGenerator):
 
 @dataclass
 class StepGenerator(SignalGenerator):
-    on_at: float
-    amplitude: float
+    on_at: float = 0.0
+    amplitude: float = 1.0
 
     def value_at_t(self, t: float) -> float:
         return (0 if t < self.on_at else self.amplitude) + self.offset
@@ -62,9 +62,9 @@ class StepGenerator(SignalGenerator):
 
 @dataclass
 class SineGenerator(SignalGenerator):
-    frequency: float
-    amplitude: float
-    phase: float
+    frequency: float = 1.0
+    amplitude: float = 1.0
+    phase: float = 0.0
 
     def value_at_t(self, t: float) -> float:
         return (
@@ -75,8 +75,8 @@ class SineGenerator(SignalGenerator):
 
 @dataclass
 class StairGenerator(SignalGenerator):
-    period: float
-    step_amplitude: float
+    period: float = 1.0
+    step_amplitude: float = 1.0
 
     def value_at_t(self, t: float) -> float:
         t_remainder = t
@@ -91,11 +91,11 @@ class StairGenerator(SignalGenerator):
 
 @dataclass
 class ChirpGenerator(SignalGenerator):
-    start_frequency: float
-    end_frequency: float
-    chirp_length: float  # In seconds
-    amplitude: float
-    phase: float
+    start_frequency: float = 1.0
+    end_frequency: float = 1.0
+    chirp_length: float = 1.0  # In seconds
+    amplitude: float = 1.0
+    phase: float = 0.0
 
     def __post_init__(self):
         self.delta_frequency = self.end_frequency - self.start_frequency

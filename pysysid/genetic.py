@@ -1,6 +1,7 @@
 """Genetic algorithm system identification methods."""
 
 
+from time import time
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
@@ -714,10 +715,6 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             generation_index
         ] = self._elite_chromosome_error
 
-        print(
-            f"Generation {generation_index} : Current Error: {self._elite_chromosome_error}"
-        )
-
     def _replace_some_chromosomes_with_elite(
         self,
         chromosomes: np.ndarray,
@@ -841,6 +838,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # for how to use multiple threads when n_jobs is not None
 
         for generation_index in range(n_iter):
+            start_time = time()
             # simulate and evaluate fitness
             (
                 fitness_per_chromosome,
@@ -881,6 +879,11 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             ) = self._replace_some_chromosomes_with_elite(
                 chromosomes, mean_error_per_chromosome_no_penalization, rng
             )
+
+            print(
+                f"Generation {generation_index} | Current Error: {self._elite_chromosome_error} | Time elapsed: {time() - start_time}"
+            )
+
             # termination
             if self._check_for_termination_condition(generation_index):
                 return self

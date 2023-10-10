@@ -459,6 +459,10 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         sol_x = sol.y
         sol_t = sol.t
 
+        if len(sol_x) == 0:
+            empty_array = np.array([])
+            return empty_array, empty_array, empty_array, empty_array
+
         sol_u, sol_y = self.recreate_input_and_output(
             compute_u_from_t,
             sol_t,

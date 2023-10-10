@@ -27,6 +27,8 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
 
         self.brake_n = self.params["brake_n"]
 
+        self.brake_R = self.params["brake_R"]
+
         self.motor_K = self.params["motor_K"]
 
         self.motor_R = self.params["motor_R"]
@@ -55,6 +57,8 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
 
         self.brake_n_1 = self.brake_n - 1
 
+        self.one_over_R_b = 1 / self.brake_R
+
     def check_valid_brake_voltage(self, v_b: float):
         if v_b < 0:
             raise ValueError("Input voltage should always be positive for te brake.")
@@ -76,7 +80,7 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
         )
 
     def compute_state_derivative(
-        self, total_state: np.ndarray, total_input: np.ndarray
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
         # hybrid actuator process model
         i = total_state[0, 0]
@@ -118,20 +122,37 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
         return self.brake_c_0 + self.brake_c_1 * v_a
 
     def compute_output(
-        self, total_state: np.ndarray, total_input: np.ndarray
+        self, t: float, total_state: np.ndarray, total_input: np.ndarray
     ) -> np.ndarray:
         # hybrid actuator process model
         i = total_state[0, 0]
         v_a = total_state[1, 0]
         theta = total_state[4, 0]
 
+        i_b = self.one_over_R_b * v_a
+
         return np.array(
             [
                 [i],
-                [v_a],
+                [i_b],
                 [theta],
             ]
         )
+
+    def param_inequality_constraint(params: np.ndarray) -> np.ndarray:
+        # all params should be positive. thus if chromosome is x, x_i >= 0.
+        # since ineqaulity constraint should be of the form h(x) <= 0, we have
+
+        h = -1.0 * params
+
+        # only exception is for beta and gamma, where we have beta + gamma >= 0,
+        # and beta - gamma >= 0. thus,
+        beta = params[6]
+        gamma = params[7]
+        h[6] = -beta - gamma
+        h[7] = -beta + gamma
+
+        return h
 
     def generate_process_model_to_integrate(
         self,
@@ -147,6 +168,41 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
         return ha_pm2i
 
 
+def generate_ha_pmg_fixed_brake_n(brake_n: int) -> type[HybridActuatorPMG]:
+    """Generates a class derived from HybridActuatorPMG, where the parameter n
+    has a predetermined value. Makes it so its not necessary to specify value for
+    key "brake_n" in kwargs when calling the derived class' constructor.
+
+    This function should be used to try system id for different values of "brake_n",
+    which should be a positive integer value. Since the GA can only do exploration over
+    floating point values, and not integers, it is necessary to run the GA on
+    experimental data multiple times, once for every possible value of "brake_n".
+    Since "brake_n" is an exponent, its value can't be enormous, so this process
+    should not be too time consuming, since the possible values should be smaller
+    than 100, if not 10.
+
+
+    Parameters
+    ----------
+    brake_n : int
+        Exponent used in the hysteresis equation of the hybrid actuator model.
+
+    Returns
+    -------
+    type[HybridActuatorPMG]
+        Class derived from the HybridActuatorPMG class. Will be used by the GA
+        to simulate an hybrid actuator response, with a predetermined brake_n
+        parameter value.
+    """
+
+    class FixedNHAPMG(HybridActuatorPMG):
+        def __init__(self, dt: float = None, **kwargs: Dict[str, float]):
+            kwargs["brake_n"] = brake_n
+            super().__init__(dt, **kwargs)
+
+    return FixedNHAPMG
+
+
 if __name__ == "__main__":
     motor_params = {
         "brake_alpha_0": 3.1428,
@@ -158,7 +214,7 @@ if __name__ == "__main__":
         "brake_gamma": 2.4246e-5,
         "brake_beta": 15.6237,
         "brake_J": 12e-7,
-        "brake_n": 26,
+        "brake_R": 1.0,
         "motor_K": 2.38e-2,
         "motor_R": 1.0,
         "motor_L": 6e-4,
@@ -179,7 +235,9 @@ if __name__ == "__main__":
 
     input_gen = sg.InputGenerator([v_m_sg, v_a_sg, tau_d_sg])
 
-    ha_pmg = HybridActuatorPMG(dt=motor_dt, **motor_params)
+    FixedNHAPMG = generate_ha_pmg_fixed_brake_n(brake_n=26)
+
+    ha_pmg = FixedNHAPMG(dt=motor_dt, **motor_params)
 
     ha_pm2i = ha_pmg.generate_process_model_to_integrate()
 
@@ -187,33 +245,45 @@ if __name__ == "__main__":
         compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
     )
 
-    fig, ax = plt.subplots(2, 2)
+    fig, ax = plt.subplots(3, 2)
 
     v_m = sol_u[0, :]
+    v_b = sol_u[1, :]
     tau_d = sol_u[2, :]
 
-    theta = sol_y[0, :]
-    omega = sol_y[2, :]
+    i_m = sol_y[0, :]
+    i_b = sol_y[1, :]
+    theta = sol_y[2, :]
 
     ax[0][0].set_xlabel(r"$t$ (s)")
-    ax[0][0].set_ylabel(r"$v(t)$ (V)")
-    ax[0][0].plot(sol_t, v, label=r"Voltage Input", color="C0")
+    ax[0][0].set_ylabel(r"$v_{m}(t)$ (V)")
+    ax[0][0].plot(sol_t, v_m, label=r"Motor Voltage Input", color="C0")
     ax[0][0].legend(loc="upper right")
 
     ax[1][0].set_xlabel(r"$t$ (s)")
-    ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
-    ax[1][0].plot(sol_t, tau_d, label=r"Torque Disturbance", color="C0")
+    ax[1][0].set_ylabel(r"$v_{b}(t)$ (V)")
+    ax[1][0].plot(sol_t, v_b, label=r"Brake Voltage Input", color="C0")
     ax[1][0].legend(loc="upper right")
 
+    ax[2][0].set_xlabel(r"$t$ (s)")
+    ax[2][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
+    ax[2][0].plot(sol_t, tau_d, label=r"Torque Disturbance", color="C0")
+    ax[2][0].legend(loc="upper right")
+
     ax[0][1].set_xlabel(r"$t$ (s)")
-    ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
-    ax[0][1].plot(sol_t, theta, label=r"Angular Position", color="C0")
+    ax[0][1].set_ylabel(r"$i_{m}(t)$ (A)")
+    ax[0][1].plot(sol_t, i_m, label=r"Motor current", color="C0")
     ax[0][1].legend(loc="upper right")
 
     ax[1][1].set_xlabel(r"$t$ (s)")
-    ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
-    ax[1][1].plot(sol_t, omega, label=r"Angular Velocity", color="C0")
+    ax[1][1].set_ylabel(r"$i_{b}(t)$ (A)")
+    ax[1][1].plot(sol_t, i_b, label=r"Brake Current", color="C0")
     ax[1][1].legend(loc="upper right")
+
+    ax[2][1].set_xlabel(r"$t$ (s)")
+    ax[2][1].set_ylabel(r"$\theta(t)$ (rad)")
+    ax[2][1].plot(sol_t, theta, label=r"Angular Position", color="C0")
+    ax[2][1].legend(loc="upper right")
 
     X = np.block([[sol_t.reshape(1, len(sol_t)).T, sol_u.T]])
 
@@ -221,7 +291,7 @@ if __name__ == "__main__":
 
     chromosome_parameter_ranges = {}
 
-    range_var = 0.99
+    range_var = 0.5
     for key, value in motor_params.items():
         chromosome_parameter_ranges[key] = (
             (1 - range_var) * value,
@@ -229,7 +299,7 @@ if __name__ == "__main__":
         )
 
     genetic_algo_regressor = genetic.Genetic(
-        process_model=Motor,
+        process_model=FixedNHAPMG,
         dt=motor_dt,
         compute_u_from_t=input_gen.value_at_t,
         n_chromosomes=100,
@@ -250,44 +320,50 @@ if __name__ == "__main__":
 
     print(f"{best_chromosome_motor_params=}")
 
-    motor_fit = Motor(dt=motor_dt, **best_chromosome_motor_params)
+    motor_fit = FixedNHAPMG(dt=motor_dt, **best_chromosome_motor_params)
     motor_pm2i_fit = motor_fit.generate_process_model_to_integrate()
 
     sol_t_fit, sol_u_fit, _, sol_y_fit = motor_pm2i_fit.integrate(
         compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
     )
 
-    v_fit = sol_u_fit[0, :]
-    tau_d_fit = sol_u_fit[1, :]
+    v_m_fit = sol_u_fit[0, :]
+    v_b_fit = sol_u_fit[1, :]
+    tau_d_fit = sol_u_fit[2, :]
 
-    theta_fit = sol_y_fit[0, :]
-    omega_fit = sol_y_fit[2, :]
+    i_m_fit = sol_y_fit[0, :]
+    i_b_fit = sol_y_fit[1, :]
+    theta_fit = sol_y_fit[2, :]
 
     ax[0][0].set_xlabel(r"$t$ (s)")
-    ax[0][0].set_ylabel(r"$v(t)$ (V)")
-    ax[0][0].plot(sol_t_fit, v_fit, label=r"Voltage Input - Best Fit", color="C1")
+    ax[0][0].set_ylabel(r"$v_{m}(t)$ (V)")
+    ax[0][0].plot(sol_t, v_m_fit, label=r"Motor Voltage Input - Best Fit", color="C1")
     ax[0][0].legend(loc="upper right")
 
     ax[1][0].set_xlabel(r"$t$ (s)")
-    ax[1][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
-    ax[1][0].plot(
-        sol_t_fit, tau_d_fit, label=r"Torque Disturbance - Best Fit", color="C1"
-    )
+    ax[1][0].set_ylabel(r"$v_{b}(t)$ (V)")
+    ax[1][0].plot(sol_t, v_b_fit, label=r"Brake Voltage Input - Best Fit", color="C1")
     ax[1][0].legend(loc="upper right")
 
+    ax[2][0].set_xlabel(r"$t$ (s)")
+    ax[2][0].set_ylabel(r"$\tau_{d}(t)$ (Nm)")
+    ax[2][0].plot(sol_t, tau_d_fit, label=r"Torque Disturbance - Best Fit", color="C1")
+    ax[2][0].legend(loc="upper right")
+
     ax[0][1].set_xlabel(r"$t$ (s)")
-    ax[0][1].set_ylabel(r"$\theta(t)$ (rad)")
-    ax[0][1].plot(
-        sol_t_fit, theta_fit, label=r"Angular Position  - Best Fit", color="C1"
-    )
+    ax[0][1].set_ylabel(r"$i_{m}(t)$ (A)")
+    ax[0][1].plot(sol_t, i_m_fit, label=r"Motor current - Best Fit", color="C1")
     ax[0][1].legend(loc="upper right")
 
     ax[1][1].set_xlabel(r"$t$ (s)")
-    ax[1][1].set_ylabel(r"$\omega(t)$ (rad/s)")
-    ax[1][1].plot(
-        sol_t_fit, omega_fit, label=r"Angular Velocity  - Best Fit", color="C1"
-    )
+    ax[1][1].set_ylabel(r"$i_{b}(t)$ (A)")
+    ax[1][1].plot(sol_t, i_b_fit, label=r"Brake Current - Best Fit", color="C1")
     ax[1][1].legend(loc="upper right")
+
+    ax[2][1].set_xlabel(r"$t$ (s)")
+    ax[2][1].set_ylabel(r"$\theta(t)$ (rad)")
+    ax[2][1].plot(sol_t, theta_fit, label=r"Angular Position - Best Fit", color="C1")
+    ax[2][1].legend(loc="upper right")
 
     plt.show()
 
