@@ -235,7 +235,7 @@ if __name__ == "__main__":
 
     input_gen = sg.InputGenerator([v_m_sg, v_a_sg, tau_d_sg])
 
-    FixedNHAPMG = generate_ha_pmg_fixed_brake_n(brake_n=26)
+    FixedNHAPMG = generate_ha_pmg_fixed_brake_n(brake_n=2)
 
     ha_pmg = FixedNHAPMG(dt=motor_dt, **motor_params)
 
@@ -310,7 +310,7 @@ if __name__ == "__main__":
         chromosome_parameter_ranges=chromosome_parameter_ranges,
     )
 
-    genetic_algo_regressor.fit(X, y, n_iter=50, x0=x0)
+    genetic_algo_regressor.fit(X, y, n_iter=40, x0=x0)
 
     best_fit_params = genetic_algo_regressor._elite_chromosome
 
