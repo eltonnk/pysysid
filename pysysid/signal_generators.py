@@ -15,14 +15,28 @@ class SignalGenerator:
 class InputGenerator:
     def __init__(self, list_signal_generators: List[SignalGenerator]):
         self.list_sg = list_signal_generators
+        self.input_size = len(self.list_sg)
 
-        self.input_signal = np.zeros((len(self.list_sg), 1))
+        self.input_signal = np.zeros((self.input_size, 1))
 
     def value_at_t(self, t: float) -> np.ndarray:
         for i, sg in enumerate(self.list_sg):
             self.input_signal[i, 0] = sg.value_at_t(t)
 
         return self.input_signal
+
+    def generate_timeseries(self, t_arr: np.ndarray) -> np.ndarray:
+        # vect_value_at_t = np.vectorize(self.value_at_t, signature="()->(n)")
+
+        # return vect_value_at_t(t_arr)
+        n_samples = t_arr.shape[0]
+
+        self.input_arr = np.zeros((self.input_size, n_samples))
+
+        for i, t in enumerate(t_arr):
+            self.input_arr[:, i] = self.value_at_t(t).reshape(self.input_size)
+
+        return self.input_arr
 
 
 @dataclass
