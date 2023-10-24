@@ -4,6 +4,7 @@
 from time import time
 from typing import Any, Callable, Dict, List, Tuple
 
+import joblib
 import numpy as np
 import sklearn.base
 from numpy.random import default_rng
@@ -600,6 +601,27 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         return fitness_per_chromosome
 
+    def _sim_and_compute_error(
+        self,
+        chromosome: np.ndarray,
+        dt_data: float,
+        X_t: np.ndarray,
+        y: np.ndarray,
+        n_outputs: int,
+        output_inverse_delta_list: np.ndarray,
+    ):
+        chromosome_j_dict = self._gen_chromosome_dict(chromosome)
+        sol_y = self._simulate_chromosome_trajectory(
+            chromosome_dict=chromosome_j_dict, dt_data=dt_data, X_t=X_t
+        )
+
+        return self._compute_chromosome_mean_error(
+            y,
+            sol_y,
+            n_outputs,
+            output_inverse_delta_list,
+        )
+
     def _evaluate_chromosome_fitness(
         self,
         chromosomes: np.ndarray,
@@ -611,21 +633,51 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         mean_error_per_chromosome_no_penalization: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         mean_error_per_chromosome = mean_error_per_chromosome_no_penalization
-        for j in range(self.n_chromosomes):
-            # Simulate model
+        # for j in range(self.n_chromosomes):
+        #     # Simulate model
 
-            if self._chromosomes_to_be_simulated[j]:
-                chromosome_j_dict = self._gen_chromosome_dict(chromosomes[:, j])
-                sol_y = self._simulate_chromosome_trajectory(
-                    chromosome_dict=chromosome_j_dict, dt_data=dt_data, X_t=X_t
-                )
+        #     if self._chromosomes_to_be_simulated[j]:
+        #         chromosome_j_dict = self._gen_chromosome_dict(chromosomes[:, j])
+        #         sol_y = self._simulate_chromosome_trajectory(
+        #             chromosome_dict=chromosome_j_dict, dt_data=dt_data, X_t=X_t
+        #         )
 
-                mean_error_per_chromosome[j] = self._compute_chromosome_mean_error(
-                    y,
-                    sol_y,
-                    n_outputs,
-                    output_inverse_delta_list,
-                )
+        #         mean_error_per_chromosome[j] = self._compute_chromosome_mean_error(
+        #             y,
+        #             sol_y,
+        #             n_outputs,
+        #             output_inverse_delta_list,
+        #         )
+
+        # HACK: can't pass the method directly to joblib.Parall as the class
+        # instance `self` would not be serialized
+        _sim_and_comp_err = lambda instnc, chrm, dt_d, X_t, y, n_out, oidl: instnc._sim_and_compute_error(
+            chromosome=chrm,
+            dt_data=dt_d,
+            X_t=X_t,
+            y=y,
+            n_outputs=n_out,
+            output_inverse_delta_list=oidl,
+        )
+
+        # Simulates the system represented by every chromosome that changed
+        # (specified by true values in self._chromosomes_to_be_simulated)
+        new_sim_mean_error = joblib.Parallel(n_jobs=self.n_jobs, max_nbytes=1e3)(
+            joblib.delayed(_sim_and_comp_err)(
+                self,
+                chromosomes[:, j],
+                dt_data,
+                X_t,
+                y,
+                n_outputs,
+                output_inverse_delta_list,
+            )
+            for j in np.where(self._chromosomes_to_be_simulated)
+        )
+
+        mean_error_per_chromosome[
+            self._chromosomes_to_be_simulated
+        ] = new_sim_mean_error
 
         mean_error_per_chromosome_no_penalization = mean_error_per_chromosome
 
