@@ -662,6 +662,12 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         # Simulates the system represented by every chromosome that changed
         # (specified by true values in self._chromosomes_to_be_simulated)
+
+        # HACK: next 2 expressions are wridd
+        indexes_chrmsms_2_b_simed = np.array(
+            np.where(self._chromosomes_to_be_simulated)
+        )
+        indexes_chrmsms_2_b_simed = indexes_chrmsms_2_b_simed.flatten()
         new_sim_mean_error = joblib.Parallel(n_jobs=self.n_jobs, max_nbytes=1e3)(
             joblib.delayed(_sim_and_comp_err)(
                 self,
@@ -672,7 +678,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 n_outputs,
                 output_inverse_delta_list,
             )
-            for j in np.where(self._chromosomes_to_be_simulated)
+            for j in indexes_chrmsms_2_b_simed
         )
 
         mean_error_per_chromosome[

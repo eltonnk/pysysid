@@ -308,6 +308,7 @@ if __name__ == "__main__":
         ratio_max_error_for_termination=0.2,
         seed=2,
         chromosome_parameter_ranges=chromosome_parameter_ranges,
+        n_jobs=8,
     )
 
     genetic_algo_regressor.fit(X, y, n_iter=40, x0=x0)
