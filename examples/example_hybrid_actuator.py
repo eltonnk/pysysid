@@ -2,6 +2,7 @@ from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
+import yappi
 
 import pysysid.genetic as genetic
 import pysysid.pm2i as pm2i
@@ -203,7 +204,7 @@ def generate_ha_pmg_fixed_brake_n(brake_n: int) -> type[HybridActuatorPMG]:
     return FixedNHAPMG
 
 
-if __name__ == "__main__":
+def _main():
     motor_params = {
         "brake_alpha_0": 3.1428,
         "brake_alpha_1": 0.000576362,
@@ -369,3 +370,11 @@ if __name__ == "__main__":
     plt.show()
 
     original_params = np.array(list(motor_params.values()))
+
+
+if __name__ == "__main__":
+    yappi.set_clock_type("cpu")
+    yappi.start()
+    _main()
+
+    yappi.convert2pstats(yappi.get_func_stats()).dump_stats("stats/func_stats.prof")

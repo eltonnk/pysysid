@@ -634,7 +634,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         mean_error_per_chromosome = mean_error_per_chromosome_no_penalization
 
-        if self.n_jobs:
+        if not self.n_jobs:
             for j in range(self.n_chromosomes):
                 # Simulate model
 

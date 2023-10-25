@@ -2,6 +2,7 @@ from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
+import yappi
 
 import pysysid.genetic as genetic
 import pysysid.pm2i as pm2i
@@ -101,7 +102,7 @@ class Motor(pm2i.ProcessModelGenerator):
         )
 
 
-if __name__ == "__main__":
+def _main():
     motor_params = {
         "R": 1.0,
         "L": 6e-4,
@@ -173,15 +174,16 @@ if __name__ == "__main__":
         process_model=Motor,
         dt=motor_dt,
         compute_u_from_t=input_gen.value_at_t,
-        n_chromosomes=100,
-        replace_with_best_ratio=0.01,
+        n_chromosomes=30,
+        replace_with_best_ratio=0.04,
         can_terminate_after_index=10,
         ratio_max_error_for_termination=0.2,
         seed=2,
         chromosome_parameter_ranges=chromosome_parameter_ranges,
+        n_jobs=8,
     )
 
-    genetic_algo_regressor.fit(X, y, n_iter=50, x0=x0)
+    genetic_algo_regressor.fit(X, y, n_iter=30, x0=x0)
 
     best_fit_params = genetic_algo_regressor._elite_chromosome
 
@@ -233,3 +235,13 @@ if __name__ == "__main__":
     plt.show()
 
     original_params = np.array(list(motor_params.values()))
+
+
+if __name__ == "__main__":
+    yappi.set_clock_type("cpu")
+    yappi.start()
+    _main()
+
+    yappi.convert2pstats(yappi.get_func_stats()).dump_stats("stats/func_stats.prof")
+
+    # yappi.convert2pstats(yappi.get_thread_stats()).dump_stats("stats/func_stats.prof")
