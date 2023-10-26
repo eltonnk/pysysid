@@ -62,6 +62,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         ratio_max_error_for_termination: float = 0.2,
         seed: int = None,
         chromosome_parameter_ranges: Dict[str, Tuple[float, float]] = None,
+        integration_method: str = "RK45",
         n_jobs=None,
     ) -> None:
         """Instantiate :class:`Genetic`.
@@ -107,6 +108,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self.seed = seed
         self.chromosome_parameter_ranges = chromosome_parameter_ranges
         self.n_jobs = n_jobs
+        self.integration_method = integration_method
 
     def _validate_chromosome_parameter_range(self):
         for param_name, param_range in self.chromosome_parameter_ranges.items():
@@ -143,6 +145,51 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         # TODO: raise warning if the ratio is over  50%, 70%, 90% ?
         # (dont want to stop if error has not gone down)
+
+    def _validate_integration_method(self):
+        list_integration_methods = ["RK45", "RK23", "DOP853", "Radau", "BDF", "LSODA"]
+
+        if self.integration_method not in list_integration_methods:
+            raise ValueError(
+                f"""Choose constructor parameter `integration_method` from this 
+                list: {list_integration_methods}. See `scipy.integrate.solve_ivp` 
+                documentation for info on these methods."""
+            )
+
+        if self.integration_method != "RK45" and self.integration_method != "Radau":
+            raise NotImplementedError(
+                """Only `integration_method`s implemented from 
+                `scipy.integrate.solve_ivp` are `RK45` and `Radau`."""
+            )
+
+        list_jac_req_methods = ["Radau", "BDF", "LSODA"]
+        has_jac_method = True
+
+        fake_params_dict = {}
+
+        for key in list(self.chromosome_parameter_ranges.keys()):
+            fake_params_dict[key] = 1.0
+
+        fake_pmg = self.process_model(**fake_params_dict)
+        fake_pm2i = fake_pmg.generate_process_model_to_integrate()
+
+        try:
+            fake_pmg.compute_df_dx(
+                0,
+                np.zeros((fake_pm2i.nbr_states, 1)),
+                np.zeros((fake_pm2i.nbr_inputs, 1)),
+            )
+        except NotImplementedError:
+            has_jac_method = False
+
+        if self.integration_method in list_jac_req_methods and not has_jac_method:
+            raise ValueError(
+                f"""Constructor paramater `process_model` must be a derived class
+                of the `ProcessModelGenerator class, with the `compute_df_dx` 
+                method derived and defined, since the chosen 
+                `integration_method` is {self.integration_method}. See the 
+                `scipy.integrate.solve_ivp` documentation for more info."""
+            )
 
     def _initialize_replacement_step_variables(self):
         self._n_chromosomes_to_replace = int(
@@ -233,6 +280,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             t_start=X_t[0],
             t_end=X_t[-1] + dt_data,
             x0=self.x0_,
+            method=self.integration_method,
         )
 
         return sol_y.T
@@ -864,6 +912,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self._validate_chromosome_parameter_range()
         self._validate_replacement_ratio()
         self._validate_ratio_max_error_for_termination()
+        self._validate_integration_method()
 
         # Random number generator. Can specify seed for reproducibility.
         rng = default_rng(self.seed)

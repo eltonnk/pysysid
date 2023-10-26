@@ -245,22 +245,11 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         return y
 
     def compute_df_dx(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        x = self._check_valid_state(x)
-        if not self.ran_checks_df_dx:
-            self._check_valid_input(u)
-
         df_dx = self.df_dx(t, x, u)
-        if not self.ran_checks_df_dx:
-            self._check_valid_matrix(df_dx, self.nbr_states, self.nbr_states, "df_dx")
-            self.ran_checks_df_dx = True
 
         return df_dx
 
     def compute_df_du(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        x = self._check_valid_state(x)
-        if not self.ran_checks_df_du:
-            self._check_valid_input(u)
-
         df_du = self.df_du(t, x, u)
         if not self.ran_checks_df_du:
             self._check_valid_matrix(df_du, self.nbr_states, self.nbr_inputs, "df_du")
@@ -269,42 +258,17 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         return df_du
 
     def compute_df_dw(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        x = self._check_valid_state(x)
-        if not self.ran_checks_df_dw:
-            self._check_valid_input(u)
-
         df_dw = self.df_dw(t, x, u)
-        if not self.ran_checks_df_dw:
-            self._check_valid_matrix(
-                df_dw, self.nbr_states, self.nbr_process_noise_inputs, "df_dw"
-            )
-            self.ran_checks_df_dw = True
 
         return df_dw
 
     def compute_dg_dx(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        x = self._check_valid_state(x)
-        if not self.ran_checks_dg_dx:
-            self._check_valid_input(u)
-
         dg_dx = self.dg_dx(t, x, u)
-        if not self.ran_checks_dg_dx:
-            self._check_valid_matrix(dg_dx, self.nbr_outputs, self.nbr_states, "dg_dx")
-            self.ran_checks_dg_dx = True
 
         return dg_dx
 
     def compute_dg_dv(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        x = self._check_valid_state(x)
-        if not self.ran_checks_dg_dv:
-            self._check_valid_input(u)
-
         dg_dv = self.dg_dv(t, x, u)
-        if not self.ran_checks_dg_dv:
-            self._check_valid_matrix(
-                dg_dv, self.nbr_outputs, self.nbr_measurement_noise_inputs, "dg_dv"
-            )
-            self.ran_checks_dg_dv = True
 
         return dg_dv
 
@@ -335,6 +299,32 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         def fction_to_integrate(t: float, x: np.ndarray) -> np.ndarray:
             u = compute_u_from_t(t)
             x_dot = self.compute_state_derivative(t, x, u)
+            return x_dot.ravel()
+
+        return fction_to_integrate
+
+    def generate_jacobian_to_integrate(
+        self,
+        compute_u_from_t: Callable[[float], np.ndarray],
+    ) -> Callable[[float, np.ndarray], np.ndarray]:
+        """Uses the `compute_u_from_t` function to generate a predetermined
+        signal at time t, the system's input, which is passed to the system's
+        derivative process model function to compute the jacobian.
+
+        Parameters
+        ----------
+        compute_u_from_t : Callable[[float], np.ndarray]
+            Function used to compute the input signal at time t.
+
+        Returns
+        -------
+        Callable[[float, np.ndarray], np.ndarray]
+            Function that computes the input signal and then the jacobian.
+        """
+
+        def fction_to_integrate(t: float, x: np.ndarray) -> np.ndarray:
+            u = compute_u_from_t(t)
+            x_dot = self.compute_df_dx(t, x, u)
             return x_dot.ravel()
 
         return fction_to_integrate
@@ -397,18 +387,48 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         self,
         compute_u_from_t: Callable[[float], np.ndarray],
     ):
-        t_temp = 0.0
+        t_temp = 1.0
         u_temp = compute_u_from_t(t_temp)
         self._check_valid_input(u_temp)
 
-        x_temp = np.zeros((self.nbr_states, 1))
+        x_temp = np.ones((self.nbr_states, 1))
         self._check_valid_state(x_temp)
 
         x_dot_temp = self.compute_state_derivative(t_temp, x_temp, u_temp)
         self._check_valid_state(x_dot_temp)
 
         y = self.compute_output(t_temp, x_temp, u_temp)
-        self._check_valid_state(y)
+        self._check_valid_output(y)
+
+        if self.df_dx is not None:
+            df_dx_temp = self.df_dx(t_temp, x_temp, u_temp)
+            self._check_valid_matrix(
+                df_dx_temp, self.nbr_states, self.nbr_states, "df_dx"
+            )
+
+        if self.df_du is not None:
+            df_du_temp = self.df_du(t_temp, x_temp, u_temp)
+            self._check_valid_matrix(
+                df_du_temp, self.nbr_states, self.nbr_inputs, "df_du"
+            )
+
+        if self.df_dw is not None:
+            df_dw_temp = self.df_dw(t_temp, x_temp, u_temp)
+            self._check_valid_matrix(
+                df_dw_temp, self.nbr_states, self.nbr_process_noise_inputs, "df_dw"
+            )
+
+        if self.dg_dx is not None:
+            dg_dx_temp = self.dg_dx(t_temp, x_temp, u_temp)
+            self._check_valid_matrix(
+                dg_dx_temp, self.nbr_outputs, self.nbr_states, "dg_dx"
+            )
+
+        if self.dg_dv is not None:
+            dg_dv_temp = self.dg_dv(t_temp, x_temp, u_temp)
+            self._check_valid_matrix(
+                dg_dv_temp, self.nbr_outputs, self.nbr_measurement_noise_inputs, "dg_dv"
+            )
 
     def integrate(
         self,
@@ -417,6 +437,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         t_start: float = 0.0,
         t_end: float = 10.0,
         x0: np.ndarray = None,
+        method: str = "RK45",
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Simulates the system's response to a given input signal.
 
@@ -448,6 +469,12 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
 
         fction_to_integrate = self.generate_fction_to_integrate(compute_u_from_t)
 
+        list_jac_req_methods = ["Radau", "BDF", "LSODA"]
+        if method in list_jac_req_methods:
+            jacobian_to_integrate = self.generate_jacobian_to_integrate(
+                compute_u_from_t
+            )
+
         if x0 is None:
             x0 = np.zeros((self.nbr_states, 1)).ravel()
 
@@ -459,7 +486,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             t_eval=t,
             rtol=1e-6,
             atol=1e-6,
-            method="RK45",
+            method=method,
             vectorized=True,
         )
 

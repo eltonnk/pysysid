@@ -303,13 +303,14 @@ def _main():
         process_model=FixedNHAPMG,
         dt=motor_dt,
         compute_u_from_t=input_gen.value_at_t,
-        n_chromosomes=100,
+        n_chromosomes=130,
         replace_with_best_ratio=0.01,
         can_terminate_after_index=10,
         ratio_max_error_for_termination=0.2,
         seed=2,
         chromosome_parameter_ranges=chromosome_parameter_ranges,
         n_jobs=8,
+        integration_method="Radau",
     )
 
     genetic_algo_regressor.fit(X, y, n_iter=40, x0=x0)
