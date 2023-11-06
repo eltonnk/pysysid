@@ -247,13 +247,11 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
     def compute_df_dx(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         df_dx = self.df_dx(t, x, u)
 
+        # return df_dx.reshape((1, df_dx.shape[0], df_dx.shape[1]))
         return df_dx
 
     def compute_df_du(self, t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         df_du = self.df_du(t, x, u)
-        if not self.ran_checks_df_du:
-            self._check_valid_matrix(df_du, self.nbr_states, self.nbr_inputs, "df_du")
-            self.ran_checks_df_du = True
 
         return df_du
 
@@ -299,7 +297,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         def fction_to_integrate(t: float, x: np.ndarray) -> np.ndarray:
             u = compute_u_from_t(t)
             x_dot = self.compute_state_derivative(t, x, u)
-            return x_dot.ravel()
+            return x_dot
 
         return fction_to_integrate
 
@@ -325,7 +323,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         def fction_to_integrate(t: float, x: np.ndarray) -> np.ndarray:
             u = compute_u_from_t(t)
             x_dot = self.compute_df_dx(t, x, u)
-            return x_dot.ravel()
+            return x_dot
 
         return fction_to_integrate
 
@@ -400,6 +398,9 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         y = self.compute_output(t_temp, x_temp, u_temp)
         self._check_valid_output(y)
 
+        x_temp = x_temp.reshape((x_temp.shape[0]))
+        u_temp = u_temp.reshape((u_temp.shape[0]))
+
         if self.df_dx is not None:
             df_dx_temp = self.df_dx(t_temp, x_temp, u_temp)
             self._check_valid_matrix(
@@ -470,6 +471,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         fction_to_integrate = self.generate_fction_to_integrate(compute_u_from_t)
 
         list_jac_req_methods = ["Radau", "BDF", "LSODA"]
+        jacobian_to_integrate = None
         if method in list_jac_req_methods:
             jacobian_to_integrate = self.generate_jacobian_to_integrate(
                 compute_u_from_t
@@ -488,6 +490,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             atol=1e-6,
             method=method,
             vectorized=True,
+            jac=jacobian_to_integrate,
         )
 
         sol_x = sol.y

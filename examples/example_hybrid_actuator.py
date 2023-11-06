@@ -30,6 +30,8 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
 
         self.brake_R = self.params["brake_R"]
 
+        self.brake_rho = self.params["brake_rho"]
+
         self.motor_K = self.params["motor_K"]
 
         self.motor_R = self.params["motor_R"]
@@ -155,6 +157,55 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
 
         return h
 
+    def _h1(self, z: float, omega: float) -> float:
+        return self.brake_A - np.power(np.tanh(self.brake_rho * z), self.brake_n) * (
+            self.brake_beta
+            + self.brake_gamma * np.tanh(self.brake_rho * omega * z)
+            - self.brake_gamma
+            * self.brake_rho
+            * omega
+            * z
+            * (1 - np.power(np.tanh(self.brake_rho * omega * z), 2))
+        )
+
+    def _h2(self, z: float, omega: float) -> float:
+        return -self.brake_n * np.power(
+            np.tanh(self.brake_rho * z), self.brake_n - 1
+        ) * (
+            self.brake_rho * z * (1 - np.power(np.tanh(self.brake_rho * z), 2))
+            + np.tanh(self.brake_rho * z)
+        ) * (
+            self.brake_beta + self.brake_gamma * np.tanh(self.brake_rho * omega * z)
+        ) - self.brake_gamma * self.brake_rho * omega * np.power(
+            np.tanh(self.brake_rho * z), self.brake_n
+        ) * (
+            1 - np.power(np.tanh(self.brake_rho * omega * z), 2)
+        )
+
+    def compute_df_dx(self, t: float, total_state: np.ndarray, total_input: np.ndarray):
+        i = total_state[0]
+        v_a = total_state[1]
+        omega = total_state[2]
+        z = total_state[3]
+        theta = total_state[4]
+
+        return np.array(
+            [
+                [self.l11, 0, self.l12, 0, 0],
+                [0, -self.brake_eta, 0, 0, 0],
+                [
+                    -self.gear_ratio_n * self.motor_K / self.J,
+                    -(self.brake_alpha_1 * z + self.brake_c_1 * omega) / self.J,
+                    -(self.gear_ratio_n**2 * self.motor_B + self._c_v_a(v_a))
+                    / self.J,
+                    -self._alpha_v_a(v_a) / self.J,
+                    0,
+                ],
+                [0, 0, self._h1(z, omega), self._h2(z, omega), 0],
+                [0, 0, 1, 0, 0],
+            ]
+        )
+
     def generate_process_model_to_integrate(
         self,
     ) -> pm2i.ProcessModelToIntegrate:
@@ -164,12 +215,15 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
             nbr_outputs=3,
             fct_for_x_dot=self.compute_state_derivative,
             fct_for_y=self.compute_output,
+            df_dx=self.compute_df_dx,
         )
 
         return ha_pm2i
 
 
-def generate_ha_pmg_fixed_brake_n(brake_n: int) -> type[HybridActuatorPMG]:
+def generate_ha_pmg_fixed_brake_n(
+    brake_n: int, brake_rho: float
+) -> type[HybridActuatorPMG]:
     """Generates a class derived from HybridActuatorPMG, where the parameter n
     has a predetermined value. Makes it so its not necessary to specify value for
     key "brake_n" in kwargs when calling the derived class' constructor.
@@ -199,6 +253,7 @@ def generate_ha_pmg_fixed_brake_n(brake_n: int) -> type[HybridActuatorPMG]:
     class FixedNHAPMG(HybridActuatorPMG):
         def __init__(self, dt: float = None, **kwargs: Dict[str, float]):
             kwargs["brake_n"] = brake_n
+            kwargs["brake_rho"] = brake_rho
             super().__init__(dt, **kwargs)
 
     return FixedNHAPMG
@@ -224,6 +279,8 @@ def _main():
         "gear_ratio_n": 20,
     }
 
+    integration_method = "Radau"
+
     # None if continous, float if discrete
     motor_dt = None
     x0 = None
@@ -236,14 +293,18 @@ def _main():
 
     input_gen = sg.InputGenerator([v_m_sg, v_a_sg, tau_d_sg])
 
-    FixedNHAPMG = generate_ha_pmg_fixed_brake_n(brake_n=2)
+    FixedNHAPMG = generate_ha_pmg_fixed_brake_n(brake_n=2, brake_rho=10)
 
     ha_pmg = FixedNHAPMG(dt=motor_dt, **motor_params)
 
     ha_pm2i = ha_pmg.generate_process_model_to_integrate()
 
     sol_t, sol_u, _, sol_y = ha_pm2i.integrate(
-        compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
+        compute_u_from_t=input_gen.value_at_t,
+        dt_data=0.01,
+        t_end=2,
+        x0=x0,
+        method=integration_method,
     )
 
     fig, ax = plt.subplots(3, 2)
@@ -309,8 +370,8 @@ def _main():
         ratio_max_error_for_termination=0.2,
         seed=2,
         chromosome_parameter_ranges=chromosome_parameter_ranges,
-        n_jobs=8,
-        integration_method="Radau",
+        n_jobs=None,
+        integration_method=integration_method,
     )
 
     genetic_algo_regressor.fit(X, y, n_iter=40, x0=x0)

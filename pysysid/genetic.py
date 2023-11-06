@@ -2,7 +2,7 @@
 
 
 from time import time
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 import joblib
 import numpy as np
@@ -176,8 +176,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         try:
             fake_pmg.compute_df_dx(
                 0,
-                np.zeros((fake_pm2i.nbr_states, 1)),
-                np.zeros((fake_pm2i.nbr_inputs, 1)),
+                np.zeros((fake_pm2i.nbr_states)),
+                np.zeros((fake_pm2i.nbr_inputs)),
             )
         except NotImplementedError:
             has_jac_method = False
@@ -996,8 +996,11 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         return self
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Perform a single-step prediction for each state in each episode.
+    def predict(
+        self,
+        X: Union[np.ndarray, Tuple[np.ndarray, Callable[[float], np.ndarray]]],  # HACK
+    ) -> np.ndarray:
+        """
 
         Parameters
         ----------
@@ -1009,9 +1012,23 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         np.ndarray
             Predicted data matrix.
         """
-        # TODO WIll single-step prediction work here?
-        # TODO How will initial conditions work?
-        pass
+        if isinstance(X, np.ndarray):
+            X_t, X_u = util.split_time_input(X)
+            dt_data = X_t[1] - X_t[0]
+            raise NotImplementedError(
+                "Need to implement interpolation function to compute input at times not specified in X_t"
+            )
+        else:
+            X_t, compute_u_from_t = X
+            dt_data = X_t[1] - X_t[0]
+
+            elite_chromosome_dict = self._gen_chromosome_dict(self._elite_chromosome)
+
+            sol_y = self._simulate_chromosome_trajectory(
+                chromosome_dict=elite_chromosome_dict, dt_data=dt_data, X_t=X_t
+            )
+
+        return sol_y
 
     # Extra estimator tags
     # https://scikit-learn.org/stable/developers/develop.html#estimator-tags
