@@ -280,6 +280,7 @@ def _main():
     }
 
     integration_method = "Radau"
+    integration_timeout = 200.0
 
     # None if continous, float if discrete
     motor_dt = None
@@ -305,6 +306,7 @@ def _main():
         t_end=2,
         x0=x0,
         method=integration_method,
+        timeout=integration_timeout,
     )
 
     fig, ax = plt.subplots(3, 2)
@@ -370,8 +372,9 @@ def _main():
         ratio_max_error_for_termination=0.2,
         seed=2,
         chromosome_parameter_ranges=chromosome_parameter_ranges,
-        n_jobs=None,
+        n_jobs=8,
         integration_method=integration_method,
+        integration_timeout=integration_timeout,
     )
 
     genetic_algo_regressor.fit(X, y, n_iter=40, x0=x0)

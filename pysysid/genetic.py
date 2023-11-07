@@ -63,6 +63,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         seed: int = None,
         chromosome_parameter_ranges: Dict[str, Tuple[float, float]] = None,
         integration_method: str = "RK45",
+        integration_timeout: float = 1000.0,
         n_jobs=None,
     ) -> None:
         """Instantiate :class:`Genetic`.
@@ -109,6 +110,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self.chromosome_parameter_ranges = chromosome_parameter_ranges
         self.n_jobs = n_jobs
         self.integration_method = integration_method
+        self.integration_timeout = integration_timeout
 
     def _validate_chromosome_parameter_range(self):
         for param_name, param_range in self.chromosome_parameter_ranges.items():
@@ -281,6 +283,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             t_end=X_t[-1] + dt_data,
             x0=self.x0_,
             method=self.integration_method,
+            timeout=self.integration_timeout,
         )
 
         return sol_y.T
