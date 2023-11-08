@@ -1,7 +1,7 @@
 """Module used by regressors to simulate identified systems.
 """
 import time
-from typing import Any, Callable, Dict, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
 import scipy
@@ -9,8 +9,9 @@ from numpy.random import default_rng
 
 
 def terminating_event(func: Callable[[float, np.ndarray], float]):
-    # Indicates to solve_ivp to terminate integration if the termination event
-    # function self._event_checker_integration_time_sanity() returns zero
+    # this function attribute ndicates to solve_ivp to terminate integration if
+    # the termination event function
+    # self._event_checker_integration_time_sanity() returns zero
     func.terminal = True
     return func
 
@@ -437,8 +438,14 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
     def _event_checker_integration_time_sanity(self, t: float, x: np.ndarray) -> float:
         self.integration_event_count += 1
 
-        if self.integration_event_count % 1000 == 0:
+        if self.integration_event_zero_time is not None:
+            return (
+                t - self.integration_event_zero_time
+            )  # HACK: see scipy.solve_ivp doc for its events argument.
+
+        elif self.integration_event_count % 1000 == 0:
             if time.time() - self.integration_time_start > self.integration_timeout:
+                self.integration_event_zero_time = t
                 return 0.0
 
         return 1.0
@@ -451,7 +458,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         t_end: float = 10.0,
         x0: np.ndarray = None,
         method: str = "RK45",
-        timeout: float = 1000.0,  # seconds
+        timeout: float = None,  # seconds
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Simulates the system's response to a given input signal.
 
@@ -493,9 +500,14 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         if x0 is None:
             x0 = np.zeros((self.nbr_states, 1)).ravel()
 
-        self.integration_time_start = time.time()
-        self.integration_event_count = 0
-        self.integration_timeout = timeout
+        if timeout is not None:
+            self.integration_time_start = time.time()
+            self.integration_event_count = 0
+            self.integration_timeout = timeout
+            self.integration_event_zero_time: Optional[float] = None
+            event = self._event_checker_integration_time_sanity
+        else:
+            event = None
 
         # Find time-domain response by integrating the ODE
         sol = scipy.integrate.solve_ivp(
@@ -508,7 +520,7 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             method=method,
             vectorized=True,
             jac=jacobian_to_integrate,
-            events=self._event_checker_integration_time_sanity,
+            events=event,
         )
 
         sol_x = sol.y

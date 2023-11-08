@@ -628,26 +628,31 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         mean_error_per_chromosome: np.ndarray,
     ):
         fitness_per_chromosome = np.zeros((self.n_chromosomes))
+
+        indexes_non_nan_errors = ~np.isnan(mean_error_per_chromosome)
+
         # Normalize error to get fitness
         inverse_max_error = 1 / np.max(
-            mean_error_per_chromosome[~np.isnan(mean_error_per_chromosome)]
+            mean_error_per_chromosome[indexes_non_nan_errors]
         )
-        fitness_per_chromosome = (
-            -1 * mean_error_per_chromosome + 1
+        fitness_per_chromosome[indexes_non_nan_errors] = (
+            -1 * mean_error_per_chromosome[indexes_non_nan_errors] + 1
         ) * inverse_max_error
 
-        min_fitness = np.min(fitness_per_chromosome[~np.isnan(fitness_per_chromosome)])
-        fitness_per_chromosome = fitness_per_chromosome - min_fitness
-
-        inverse_max_fitness = np.max(
-            fitness_per_chromosome[~np.isnan(fitness_per_chromosome)]
+        min_fitness = np.min(fitness_per_chromosome[indexes_non_nan_errors])
+        fitness_per_chromosome[indexes_non_nan_errors] = (
+            fitness_per_chromosome[indexes_non_nan_errors] - min_fitness
         )
-        fitness_per_chromosome = fitness_per_chromosome * inverse_max_fitness
 
-        bool_arr_where_nan = np.isnan(fitness_per_chromosome)
+        inverse_max_fitness = np.max(fitness_per_chromosome[indexes_non_nan_errors])
+        fitness_per_chromosome[indexes_non_nan_errors] = (
+            fitness_per_chromosome[indexes_non_nan_errors] * inverse_max_fitness
+        )
+
+        indexes_nan_errors = np.isnan(mean_error_per_chromosome)
         # replace all nan errors (caused by unstable plants) by zero fitnesses
-        fitness_per_chromosome[bool_arr_where_nan] = np.zeros(
-            (np.count_nonzero(bool_arr_where_nan))
+        fitness_per_chromosome[indexes_nan_errors] = np.zeros(
+            (np.count_nonzero(indexes_nan_errors))
         )
 
         return fitness_per_chromosome
