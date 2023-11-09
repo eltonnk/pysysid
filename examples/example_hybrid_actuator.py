@@ -284,7 +284,7 @@ def _main():
     # the parameters the chromosome define create an unstable system. Naturally the
     # unstable system takes more time to simulate and thus it is not necessary
     # to let scipy.integrate.solve_ivp compute indifinetly
-    integration_timeout = 30.0
+    integration_timeout = 150.0
 
     # None if continous, float if discrete
     motor_dt = None

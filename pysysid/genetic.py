@@ -1,6 +1,7 @@
 """Genetic algorithm system identification methods."""
 
 
+from copy import deepcopy
 from time import time
 from typing import Any, Callable, Dict, List, Tuple, Union
 
@@ -735,7 +736,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 self._chromosomes_to_be_simulated
             ] = new_sim_mean_error
 
-        mean_error_per_chromosome_no_penalization = mean_error_per_chromosome
+        mean_error_per_chromosome_no_penalization = deepcopy(mean_error_per_chromosome)
 
         mean_error_per_chromosome = self._adaptatively_penalize_constraint_violations(
             mean_error_per_chromosome, chromosomes
@@ -962,9 +963,6 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 output_inverse_delta_list=output_inverse_delta_list,
                 mean_error_per_chromosome_no_penalization=mean_error_per_chromosome_no_penalization,
             )
-
-            if generation_index == 37:
-                pass
 
             # we will only simulate trajectory for chromosomes that have changed in crossover, mutate or replacement steps
             self._chromosomes_to_be_simulated = np.full((self.n_chromosomes), False)
