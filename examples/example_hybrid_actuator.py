@@ -280,7 +280,11 @@ def _main():
     }
 
     integration_method = "Radau"
-    integration_timeout = 25.0
+    # Used to indicate to stop simulating dynamic responmse of chromosomes when
+    # the parameters the chromosome define create an unstable system. Naturally the
+    # unstable system takes more time to simulate and thus it is not necessary
+    # to let scipy.integrate.solve_ivp compute indifinetly
+    integration_timeout = 30.0
 
     # None if continous, float if discrete
     motor_dt = None
@@ -366,7 +370,7 @@ def _main():
         process_model=FixedNHAPMG,
         dt=motor_dt,
         compute_u_from_t=input_gen.value_at_t,
-        n_chromosomes=100,
+        n_chromosomes=130,
         replace_with_best_ratio=0.01,
         can_terminate_after_index=10,
         ratio_max_error_for_termination=0.2,
