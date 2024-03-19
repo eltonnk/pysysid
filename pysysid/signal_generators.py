@@ -132,3 +132,48 @@ class RepeatedChirpGenerator(ChirpGenerator):
             t_remainder -= self.chirp_length
 
         return super().value_at_t(t_remainder)
+
+
+@dataclass
+class PrbsGenerator(SignalGenerator):
+    """Pseudo Random Binary Sequence Generator
+
+    Thanks to Steven Dahdah for providing the original source of the
+    code found in this class in https://github.com/decargroup/quanser_qube
+
+    """
+
+    min_value: float
+    max_value: float
+    min_period: float
+    seed: int
+
+    def __post_init__(self):
+        self.prbs_bits = self._prbs_bits()
+        self.complete_bits_seq_len = len(self.prbs_bits)
+
+    def _prbs_bits(self) -> np.ndarray:
+        complete_sequence = []
+        lfsr = self.seed
+        while True:
+            # Generate a new bit
+            bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 0x0001
+            # Shift new bit into register
+            lfsr = (lfsr >> 1) | (bit << 15)
+            # Generate output boolean
+            complete_sequence.append(bit == 0x0001)
+            if lfsr == self.seed:
+                break
+
+        return np.array(complete_sequence)
+
+    def value_at_t(self, t: float) -> float:
+        t_remainder = t
+        i = 0
+
+        while t_remainder >= self.min_period:
+            t_remainder -= self.min_period
+            i = i + 1
+
+        i = i % self.complete_bits_seq_len
+        return self.max_value if self.prbs_bits[i] else self.min_value
