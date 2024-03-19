@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
@@ -144,9 +144,9 @@ class PrbsGenerator(SignalGenerator):
 
     """
 
-    amplitude: float
-    min_period: float
-    seed: int
+    amplitude: float = 1.0
+    min_period: float = 1.0
+    seed: int = 1.0
 
     def __post_init__(self):
         self.prbs_bits = self._prbs_bits()
@@ -183,10 +183,16 @@ class PrbsGenerator(SignalGenerator):
         )
 
 
+def default_signal() -> np.ndarray:
+    return np.zeros(
+        10,
+    )
+
+
 @dataclass
 class PredeterminedSignalGenerator(SignalGenerator):
-    signal: np.ndarray
-    f_samp: float
+    signal: np.ndarray = field(default_factory=default_signal)
+    f_samp: float = 1.0
 
     def __post_init__(self):
         self.samp_period = 1.0 / self.f_samp
@@ -205,7 +211,7 @@ class PredeterminedSignalGenerator(SignalGenerator):
 
 @dataclass
 class InterpolatedSignalGenerator(PredeterminedSignalGenerator):
-    time_arr: np.ndarray
+    time_arr: np.ndarray = field(default_factory=default_signal)
     kind: str = None
 
     def __post_init__(self):

@@ -142,20 +142,24 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
             ]
         )
 
-    def param_inequality_constraint(params: np.ndarray) -> np.ndarray:
-        # all params should be positive. thus if chromosome is x, x_i >= 0.
-        # since ineqaulity constraint should be of the form h(x) <= 0, we have
+    def param_inequality_constraint(params: Dict[str, float]) -> np.ndarray:
 
-        h = -1.0 * params
+        h_x = []
+        # all params should be positive. since inequality constraint should be
+        # of the form h(x) <= 0, we multiply every constraint by -1
+        for key, val in params.items():
+            # only exception is for beta and gamma, where we have beta + gamma >= 0,
+            # and gamma - beta >= 0. thus,
+            if key == "brake_beta":
+                continue
+            if key == "brake_gamma":
+                continue
+            h_x.append(-1.0 * val)
 
-        # only exception is for beta and gamma, where we have beta + gamma >= 0,
-        # and beta - gamma >= 0. thus,
-        beta = params[6]
-        gamma = params[7]
-        h[6] = -beta - gamma
-        h[7] = -beta + gamma
+        h_x.append(-params["brake_gamma"] - params["brake_beta"])
+        h_x.append(-params["brake_gamma"] + params["brake_beta"])
 
-        return h
+        return np.array(h_x)
 
     def _h1(self, z: float, omega: float) -> float:
         return self.brake_A - np.power(np.tanh(self.brake_rho * z), self.brake_n) * (
@@ -196,8 +200,7 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
                 [
                     -self.gear_ratio_n * self.motor_K / self.J,
                     -(self.brake_alpha_1 * z + self.brake_c_1 * omega) / self.J,
-                    -(self.gear_ratio_n**2 * self.motor_B + self._c_v_a(v_a))
-                    / self.J,
+                    -(self.gear_ratio_n**2 * self.motor_B + self._c_v_a(v_a)) / self.J,
                     -self._alpha_v_a(v_a) / self.J,
                     0,
                 ],

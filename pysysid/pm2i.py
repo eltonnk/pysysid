@@ -1,5 +1,6 @@
 """Module used by regressors to simulate identified systems.
 """
+
 import time
 from typing import Callable, Dict, Optional, Tuple
 
@@ -88,12 +89,12 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
         self.nbr_states: int = nbr_states
         self.nbr_inputs: int = nbr_inputs
         self.nbr_outputs: int = nbr_outputs
-        self.fct_for_x_dot: Callable[
-            [float, np.ndarray, np.ndarray], np.ndarray
-        ] = fct_for_x_dot
-        self.fct_for_y: Callable[
-            [float, np.ndarray, np.ndarray], np.ndarray
-        ] = fct_for_y
+        self.fct_for_x_dot: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = (
+            fct_for_x_dot
+        )
+        self.fct_for_y: Callable[[float, np.ndarray, np.ndarray], np.ndarray] = (
+            fct_for_y
+        )
 
         self.df_dx = df_dx
         self.df_dw = df_dw
@@ -679,16 +680,18 @@ class ProcessModelGenerator:
         raise NotImplementedError("Derived class should override this method")
 
     @staticmethod
-    def param_inequality_constraint(params: np.ndarray) -> np.ndarray:
+    def param_inequality_constraint(params: Dict[str, float]) -> np.ndarray:
         """Returns the value of inequality constraint function h(x).
         h(x) is such that the inequality h(x) <= 0 should be true
-        for all possible values of x, with x being the array `params`.
+        for all possible values of x, with x being the system parameters found
+        in `params`.
 
         Parameters
         ----------
-        params : np.ndarray
-            Array of parameters. Should be in the same order as the parameters
-            in the `kwargs` dict in the derived class constructor.
+        params : Dict[str, float]
+            Dictionnary of parameters, containing the same parameters as the
+            ones given in the `kwargs` dict that is provided to the derived
+            class constructor.
 
         Returns
         -------
@@ -698,16 +701,18 @@ class ProcessModelGenerator:
         raise NotImplementedError("Derived class should override this method")
 
     @staticmethod
-    def param_equality_constraint(params: np.ndarray) -> np.ndarray:
+    def param_equality_constraint(params: Dict[str, float]) -> np.ndarray:
         """Returns the value of inequality constraint function g(x).
         g(x) is such that the inequality g(x) = 0 should be true
-        for all possible values of x, with x being the array `params`.
+        for all possible values of x, with x being the system parameters found
+        in `params`.
 
         Parameters
         ----------
-        params : np.ndarray
-            Array of parameters. Should be in the same order as the parameters
-            in the `kwargs` dict in the derived class constructor.
+        params : Dict[str, float]
+            Dictionnary of parameters, containing the same parameters as the
+            ones given in the `kwargs` dict that is provided to the derived
+            class constructor.
 
         Returns
         -------

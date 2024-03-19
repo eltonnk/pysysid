@@ -1,6 +1,5 @@
 """Genetic algorithm system identification methods."""
 
-
 from copy import deepcopy
 from time import time
 from typing import Any, Callable, Dict, List, Tuple, Union
@@ -213,14 +212,18 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         self._inequality_constraint = None
         try:
-            self.process_model.param_inequality_constraint(fake_params_array)
+            self.process_model.param_inequality_constraint(
+                self._gen_chromosome_dict(fake_params_array)
+            )
             self._inequality_constraint = self.process_model.param_inequality_constraint
         except NotImplementedError:
             self._inequality_constraint = None
 
         self._equality_constraint = None
         try:
-            self.process_model.param_equality_constraint(fake_params_array)
+            self.process_model.param_equality_constraint(
+                self._gen_chromosome_dict(fake_params_array)
+            )
             self._equality_constraint = self.process_model.param_equality_constraint
         except NotImplementedError:
             self._equality_constraint = None
@@ -335,13 +338,17 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
         for j in range(self.n_chromosomes):
             if self._inequality_constraint is not None:
-                c_ineq_j = self._inequality_constraint(chromosomes[:, j])
+                c_ineq_j = self._inequality_constraint(
+                    self._gen_chromosome_dict(chromosomes[:, j])
+                )
                 # infeasiblity is necessarily positive since its either zero or
                 # a positive value ( h(x) <0)
                 c_ineq_j = np.clip(c_ineq_j, a_min=0.0, a_max=None)
                 c[0].append(c_ineq_j.reshape((len(c_ineq_j), 1)))
             if self._equality_constraint is not None:
-                c_eq_j = self._equality_constraint(chromosomes[:, j])
+                c_eq_j = self._equality_constraint(
+                    self._gen_chromosome_dict(chromosomes[:, j])
+                )
                 c_eq_j = np.abs(c_eq_j) - self._equality_constraint_tolerance
                 c_eq_j = np.clip(c_eq_j, a_min=0.0, a_max=None)
                 c_eq_j = c_eq_j.reshape((len(c_eq_j), 1))
@@ -498,12 +505,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     ) -> np.ndarray:
         penalized_mean_error_per_chromosome = mean_error_per_chromosome
 
-        penalized_mean_error_per_chromosome[
-            infeasability_indexes
-        ] = penalized_mean_error_per_chromosome[
-            infeasability_indexes
-        ] + infeasiblity_scaling * (
-            best_error - worst_error
+        penalized_mean_error_per_chromosome[infeasability_indexes] = (
+            penalized_mean_error_per_chromosome[infeasability_indexes]
+            + infeasiblity_scaling * (best_error - worst_error)
         )
 
         return penalized_mean_error_per_chromosome
@@ -732,9 +736,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
                 for j in indexes_chrmsms_2_b_simed
             )
 
-            mean_error_per_chromosome[
-                self._chromosomes_to_be_simulated
-            ] = new_sim_mean_error
+            mean_error_per_chromosome[self._chromosomes_to_be_simulated] = (
+                new_sim_mean_error
+            )
 
         mean_error_per_chromosome_no_penalization = deepcopy(mean_error_per_chromosome)
 
@@ -820,9 +824,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             self._elite_chromosome = valid_chromosomes[:, index_elite_chromosome]
 
         # This list lets us see progress of chromosome error
-        self._elite_chromosome_error_list[
-            generation_index
-        ] = self._elite_chromosome_error
+        self._elite_chromosome_error_list[generation_index] = (
+            self._elite_chromosome_error
+        )
 
     def _replace_some_chromosomes_with_elite(
         self,
@@ -833,9 +837,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         for _ in range(self._n_chromosomes_to_replace):
             k = rng.integers(low=0, high=self.n_chromosomes)
             chromosomes[:, k] = self._elite_chromosome
-            mean_error_per_chromosome_no_penalization[
-                k
-            ] = self._elite_chromosome_error_no_penal
+            mean_error_per_chromosome_no_penalization[k] = (
+                self._elite_chromosome_error_no_penal
+            )
         return chromosomes, mean_error_per_chromosome_no_penalization
 
     def _check_for_termination_condition(
