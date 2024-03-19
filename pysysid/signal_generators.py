@@ -1,7 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List
 
 import numpy as np
+import scipy.interpolate as sint
 
 
 @dataclass
@@ -143,8 +144,7 @@ class PrbsGenerator(SignalGenerator):
 
     """
 
-    min_value: float
-    max_value: float
+    amplitude: float
     min_period: float
     seed: int
 
@@ -176,4 +176,42 @@ class PrbsGenerator(SignalGenerator):
             i = i + 1
 
         i = i % self.complete_bits_seq_len
-        return self.max_value if self.prbs_bits[i] else self.min_value
+        return (
+            self.offset + self.amplitude
+            if self.prbs_bits[i]
+            else self.offset - self.amplitude
+        )
+
+
+@dataclass
+class PredeterminedSignalGenerator(SignalGenerator):
+    signal: np.ndarray
+    f_samp: float
+
+    def __post_init__(self):
+        self.samp_period = 1.0 / self.f_samp
+
+    def value_at_t(self, t: float) -> float:
+        # Assuming zero-order hold discretized signal
+        t_remainder = t
+        i = 0
+
+        while t_remainder >= self.samp_period:
+            t_remainder -= self.samp_period
+            i = i + 1
+
+        return self.signal[i]
+
+
+@dataclass
+class InterpolatedSignalGenerator(PredeterminedSignalGenerator):
+    time_arr: np.ndarray
+    kind: str = None
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.f_interp = sint.interp1d(self.time_arr, self.signal, kind=self.kind)
+
+    def value_at_t(self, t: float) -> float:
+        return self.f_interp(t)
