@@ -284,7 +284,10 @@ def _main():
     # the parameters the chromosome define create an unstable system. Naturally the
     # unstable system takes more time to simulate and thus it is not necessary
     # to let scipy.integrate.solve_ivp compute indifinetly
-    integration_timeout = 150.0
+    integration_timeout = 50.0
+
+    dt_data = 0.0002
+    t_end = 2
 
     # None if continous, float if discrete
     motor_dt = None
@@ -306,8 +309,8 @@ def _main():
 
     sol_t, sol_u, _, sol_y = ha_pm2i.integrate(
         compute_u_from_t=input_gen.value_at_t,
-        dt_data=0.01,
-        t_end=2,
+        dt_data=dt_data,
+        t_end=t_end,
         x0=x0,
         method=integration_method,
         timeout=integration_timeout,
@@ -370,7 +373,7 @@ def _main():
         process_model=FixedNHAPMG,
         dt=motor_dt,
         compute_u_from_t=input_gen.value_at_t,
-        n_chromosomes=130,
+        n_chromosomes=100,
         replace_with_best_ratio=0.01,
         can_terminate_after_index=10,
         ratio_max_error_for_termination=0.2,
@@ -395,7 +398,7 @@ def _main():
     motor_pm2i_fit = motor_fit.generate_process_model_to_integrate()
 
     sol_t_fit, sol_u_fit, _, sol_y_fit = motor_pm2i_fit.integrate(
-        compute_u_from_t=input_gen.value_at_t, dt_data=0.01, t_end=2, x0=x0
+        compute_u_from_t=input_gen.value_at_t, dt_data=dt_data, t_end=t_end, x0=x0
     )
 
     v_m_fit = sol_u_fit[0, :]
