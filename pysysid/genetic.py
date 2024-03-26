@@ -284,7 +284,9 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             compute_u_from_t=self.compute_u_from_t,
             dt_data=dt_data,
             t_start=X_t[0],
-            t_end=X_t[-1] + dt_data,
+            t_end=X_t[
+                -1
+            ],  # +dt_data, # commenting out the addition of dt_data to accomodate for interpolated input signals which can't extrapolate
             x0=self.x0_,
             method=self.integration_method,
             timeout=self.integration_timeout,
