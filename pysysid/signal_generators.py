@@ -157,9 +157,17 @@ class PrbsGenerator(SignalGenerator):
         lfsr = self.seed
         while True:
             # Generate a new bit
-            bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 0x0001
+            bit = (
+                (
+                    ((lfsr >> 0) & 0xFFFF)
+                    ^ ((lfsr >> 2) & 0xFFFF)
+                    ^ ((lfsr >> 3) & 0xFFFF)
+                    ^ ((lfsr >> 5) & 0xFFFF)
+                )
+                & 0x0001
+            ) & 0xFFFF
             # Shift new bit into register
-            lfsr = (lfsr >> 1) | (bit << 15)
+            lfsr = ((lfsr >> 1) & 0xFFFF) | ((bit << 15) & 0xFFFF) & 0xFFFF
             # Generate output boolean
             complete_sequence.append(bit == 0x0001)
             if lfsr == self.seed:
