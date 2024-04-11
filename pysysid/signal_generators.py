@@ -154,20 +154,20 @@ class PrbsGenerator(SignalGenerator):
 
     def _prbs_bits(self) -> np.ndarray:
         complete_sequence = []
-        lfsr = self.seed
+        lfsr = self.seed & 0xFFFF
         while True:
             # Generate a new bit
             bit = (
                 (
-                    ((lfsr >> 0) & 0xFFFF)
-                    ^ ((lfsr >> 2) & 0xFFFF)
-                    ^ ((lfsr >> 3) & 0xFFFF)
-                    ^ ((lfsr >> 5) & 0xFFFF)
+                    ((( ((lfsr >> 0) & 0xFFFF)
+                    ^ ((lfsr >> 2) & 0xFFFF)) & 0xFFFF
+                    ^ ((lfsr >> 3) & 0xFFFF)) & 0xFFFF
+                    ^ ((lfsr >> 5) & 0xFFFF)) & 0xFFFF
                 )
                 & 0x0001
             ) & 0xFFFF
             # Shift new bit into register
-            lfsr = ((lfsr >> 1) & 0xFFFF) | ((bit << 15) & 0xFFFF) & 0xFFFF
+            lfsr = (((lfsr >> 1) & 0xFFFF) | ((bit << 15) & 0xFFFF)) & 0xFFFF
             # Generate output boolean
             complete_sequence.append(bit == 0x0001)
             if lfsr == self.seed:
