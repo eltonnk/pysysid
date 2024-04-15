@@ -312,7 +312,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             #  in this specific chromosome produce an unstable system
             return np.nan
 
-        normalized_square_error = np.zeros(y.shape)
+        normalized_square_error = np.zeros(original_y.shape)
 
         for i in range(n_outputs):
             square = np.square(sol_y[:, i] - original_y[:, i])
