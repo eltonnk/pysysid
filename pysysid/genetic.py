@@ -301,9 +301,12 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         n_outputs: int,
         output_inverse_delta_list: np.ndarray,
     ) -> float:
+        original_y = y 
+        if y.shape[0] - sol_y.shape[0] == 1:
+            original_y = y[:-1]
         # TODO: deal with unstable error, create a self.is_unstable_response_
         # parameter in self.fit so that we can instead only compare the
-        if sol_y.shape[0] < y.shape[0]:
+        elif sol_y.shape[0] < y.shape[0]:
             # Numerical integration blew up, and scipy.integrate cuts the
             # simulation short when state values are +/- inf. The parameters
             #  in this specific chromosome produce an unstable system
@@ -312,7 +315,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         normalized_square_error = np.zeros(y.shape)
 
         for i in range(n_outputs):
-            square = np.square(sol_y[:, i] - y[:, i])
+            square = np.square(sol_y[:, i] - original_y[:, i])
             inverse_delta = output_inverse_delta_list[i]
             # the error for each output is normalized so that no output error
             # supersedes another output in the euclidean norm
