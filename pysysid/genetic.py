@@ -301,7 +301,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         n_outputs: int,
         output_inverse_delta_list: np.ndarray,
     ) -> float:
-        original_y = y 
+        original_y = y
         if y.shape[0] - sol_y.shape[0] == 1:
             original_y = y[:-1]
         # TODO: deal with unstable error, create a self.is_unstable_response_
@@ -323,7 +323,19 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             normalized_square_error[:, i] = square * inverse_delta
 
         normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
-        return np.mean(normalized_square_error)
+
+        mean_error = np.mean(normalized_square_error)
+
+        if np.isinf(mean_error):
+            # Numerical integration blew up, but wasn't cut short, as numerical values where
+            # still under the floating point limit. However, the square of these values
+            # goes over the floating point limit, which is a good indicator that the
+            # simulated system is unstable and thus the error, while technically
+            # still finite, shouldn't be considered in the fitness computation
+            # for the chromosome corresponding to the sim. system.
+            return np.nan
+
+        return mean_error
 
     def _evaluate_chromosome_infeasibility(
         self, chromosomes: np.ndarray
