@@ -1,13 +1,14 @@
 """Genetic algorithm system identification methods."""
 
 from copy import deepcopy
-from time import time
+import time
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 import joblib
 import numpy as np
 import sklearn.base
 from numpy.random import default_rng
+import csv
 
 from . import pm2i, util
 
@@ -65,6 +66,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         integration_method: str = "RK45",
         integration_timeout: float = 1000.0,
         n_jobs=None,
+        save_progess=False,
     ) -> None:
         """Instantiate :class:`Genetic`.
 
@@ -111,6 +113,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self.n_jobs = n_jobs
         self.integration_method = integration_method
         self.integration_timeout = integration_timeout
+        self.save_progess = save_progess
 
     def _validate_chromosome_parameter_range(self):
         for param_name, param_range in self.chromosome_parameter_ranges.items():
@@ -227,6 +230,19 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             self._equality_constraint = self.process_model.param_equality_constraint
         except NotImplementedError:
             self._equality_constraint = None
+
+    def _initialize_save_progress(self):
+        self._progress_filename = "ga_" + time.strftime("%Y%m%d_%H%M%S") + ".csv"
+        _progress_file = open(self._progress_filename, "w", newline="")
+        _progress_csv_writer = csv.writer(_progress_file, delimiter=",")
+        _progress_csv_writer.writerow(list(self.chromosome_parameter_ranges.keys()))
+        _progress_file.close()
+
+    def _save_progress(self):
+        _progress_file = open(self._progress_filename, "a", newline="")
+        _progress_csv_writer = csv.writer(_progress_file, delimiter=",")
+        _progress_csv_writer.writerow(self._elite_chromosome)
+        _progress_file.close()
 
     def _initialize_chromosomes(
         self, rng: np.random.Generator
@@ -946,6 +962,8 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self._initialize_termination_checking_variables(n_iter)
         self._initialize_simulation_flags()
         self._initialize_constraints()
+        if self.save_progess:
+            self._initialize_save_progress()
 
         chromosomes, param_std_deviation = self._initialize_chromosomes(rng)
 
@@ -969,7 +987,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         # for how to use multiple threads when n_jobs is not None
 
         for generation_index in range(n_iter):
-            start_time = time()
+            start_time = time.time()
             # simulate and evaluate fitness
             (
                 fitness_per_chromosome,
@@ -1012,8 +1030,11 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             )
 
             print(
-                f"Generation {generation_index} | Current Error: {self._elite_chromosome_error} | Time elapsed: {time() - start_time}"
+                f"Generation {generation_index} | Current Error: {self._elite_chromosome_error} | Time elapsed: {time.time() - start_time}"
             )
+
+            if self.save_progess:
+                self._save_progress()
 
             # termination
             if self._check_for_termination_condition(generation_index):

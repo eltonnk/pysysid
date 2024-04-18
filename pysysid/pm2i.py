@@ -511,18 +511,27 @@ class ProcessModelToIntegrate:  # or, when shortened, pm2i
             event = None
 
         # Find time-domain response by integrating the ODE
-        sol = scipy.integrate.solve_ivp(
-            fun=fction_to_integrate,
-            t_span=(t_start, t_end),
-            y0=x0,
-            t_eval=t,
-            rtol=1e-6,
-            atol=1e-6,
-            method=method,
-            vectorized=True,
-            jac=jacobian_to_integrate,
-            events=event,
-        )
+        try:
+            sol = scipy.integrate.solve_ivp(
+                fun=fction_to_integrate,
+                t_span=(t_start, t_end),
+                y0=x0,
+                t_eval=t,
+                rtol=1e-6,
+                atol=1e-6,
+                method=method,
+                vectorized=True,
+                jac=jacobian_to_integrate,
+                events=event,
+            )
+
+        except ValueError as m:
+            # the system is probably unstable and thus the state values
+            # blew up to infinity
+            if str(m) == "array must not contain infs or NaNs":
+                empty_array = np.array([])
+                return empty_array, empty_array, empty_array, empty_array
+            raise m
 
         sol_x = sol.y
         sol_t = sol.t
