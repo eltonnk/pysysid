@@ -1,14 +1,14 @@
 """Genetic algorithm system identification methods."""
 
-from copy import deepcopy
+import csv
 import time
+from copy import deepcopy
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 import joblib
 import numpy as np
 import sklearn.base
 from numpy.random import default_rng
-import csv
 
 from . import pm2i, util
 
@@ -283,7 +283,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         dt_data = X_t[1] - X_t[0]
 
         n_outputs = y.shape[1]
-        output_inverse_delta_list = np.max(y, axis=0)
+        output_inverse_delta_list = np.max(np.absolute(y), axis=0)
         output_inverse_delta_list = 1 / output_inverse_delta_list
 
         return X_t, X_u, dt_data, n_outputs, output_inverse_delta_list
@@ -328,19 +328,20 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             #  in this specific chromosome produce an unstable system
             return np.nan
 
-        normalized_square_error = np.zeros(original_y.shape)
+        normalized_error_arr = np.zeros(original_y.shape)
 
         for i in range(n_outputs):
-            square = np.square(sol_y[:, i] - original_y[:, i])
             inverse_delta = output_inverse_delta_list[i]
             # the error for each output is normalized so that no output error
             # supersedes another output in the euclidean norm
             # see https://ieeexplore.ieee.org/document/1490788
-            normalized_square_error[:, i] = square * inverse_delta
+            error_arr = (sol_y[:, i] - original_y[:, i]) * inverse_delta
 
-        normalized_square_error = np.linalg.norm(normalized_square_error, axis=1)
+            normalized_error_arr[:, i] = error_arr
 
-        mean_error = np.mean(normalized_square_error)
+        normalized_error = np.linalg.norm(normalized_error_arr, axis=1)
+
+        mean_error = np.mean(normalized_error)
 
         if np.isinf(mean_error):
             # Numerical integration blew up, but wasn't cut short, as numerical values where
