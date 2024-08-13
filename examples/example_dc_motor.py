@@ -86,11 +86,17 @@ class Motor(pm2i.ProcessModelGenerator):
     ) -> np.ndarray:
         return self.mat_C @ total_state + self.mat_D @ total_input
 
-    def param_inequality_constraint(params: np.ndarray) -> np.ndarray:
+    def param_inequality_constraint(params: Dict[str, float]) -> np.ndarray:
         # all params should be positive. thus if chromosome is x, x_i >= 0.
         # since ineqaulity constraint should be of the form h(x) <= 0, we have
 
-        return -1.0 * params
+        h_x = []
+        # all params should be positive. since inequality constraint should be
+        # of the form h(x) <= 0, we multiply every constraint by -1
+        for key, val in params.items():
+            h_x.append(-1.0 * val)
+
+        return h_x
 
     def generate_process_model_to_integrate(self) -> pm2i.ProcessModelToIntegrate:
         return pm2i.ProcessModelToIntegrate(
