@@ -677,7 +677,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         min_fitness = np.min(fitness_per_chromosome[~np.isnan(fitness_per_chromosome)])
         fitness_per_chromosome = fitness_per_chromosome - min_fitness
 
-        inverse_max_fitness = np.max(
+        inverse_max_fitness = 1 / np.max(
             fitness_per_chromosome[~np.isnan(fitness_per_chromosome)]
         )
         fitness_per_chromosome = fitness_per_chromosome * inverse_max_fitness
@@ -1006,6 +1006,14 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             # we will only simulate trajectory for chromosomes that have changed in crossover, mutate or replacement steps
             self._chromosomes_to_be_simulated = np.full((self.n_chromosomes), False)
 
+            # elitism
+            self._select_elite_chromosome(
+                chromosomes,
+                mean_error_per_chromosome,
+                mean_error_per_chromosome_no_penalization,
+                generation_index,
+            )
+
             # cross over
             chromosomes = self._crossover_chromosomes(
                 chromosomes, fitness_per_chromosome, rng
@@ -1014,13 +1022,7 @@ class Genetic(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
             chromosomes = self._mutate_chromosomes(
                 chromosomes, fitness_per_chromosome, param_std_deviation, rng
             )
-            # elitism
-            self._select_elite_chromosome(
-                chromosomes,
-                mean_error_per_chromosome,
-                mean_error_per_chromosome_no_penalization,
-                generation_index,
-            )
+
             # replacement
             (
                 chromosomes,
